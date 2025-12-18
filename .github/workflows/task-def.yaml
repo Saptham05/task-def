@@ -203,6 +203,13 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}  
       
       - name: Process Parameter File
         id: prepare-params
@@ -261,12 +268,12 @@ jobs:
           echo "✅ Template validation successful"
           echo "::endgroup::"
       
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
+      #- name: Configure AWS Credentials (OIDC)
+       # uses: aws-actions/configure-aws-credentials@v4
+        #with:
+         # role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          #role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
+          #aws-region: ${{ env.AWS_REGION }}
 
   ################################################################################
   # Job 3: Execute CloudFormation Operation
