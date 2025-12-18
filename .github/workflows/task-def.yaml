@@ -87,7 +87,7 @@ jobs:
           echo "Parameter File: ${{ env.PARAMETER_FILE }}"
           echo "AWS Region: ${{ env.AWS_REGION }}"
           echo "Stack Name: ${{ env.STACK_NAME }}"
-          echo "Dry Run: ${{ inputs.dry_run }}"
+          echo "Dry Run+: ${{ inputs.dry_run }}"
           echo "::endgroup::"
           
           # Validate environment name format (alphanumeric, hyphens, underscores only)
@@ -139,7 +139,7 @@ jobs:
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::789406175361:role/GitHubActionsOIDCRole
           role-session-name: github-actions-ecs-taskdef-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
       
