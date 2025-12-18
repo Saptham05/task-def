@@ -97,7 +97,8 @@ jobs:
           fi
           
           # Validate environment name length (CloudFormation stack name limits)
-          if [ ${#{{ inputs.environment }}} -gt 50 ]; then
+          # if [ ${#{{ inputs.environment }}} -gt 50 ]; then
+          if [ ${{ inputs.environment }} -gt 50 ]; then
             echo "::error::Environment name must be 50 characters or less"
             exit 1
           fi
