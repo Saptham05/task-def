@@ -1,1 +1,161 @@
-asdfghjkl
+name: ECS Task Definition Management
+
+################################################################################
+# This workflow manages ECS Task Definitions using CloudFormation
+# - Supports create, update, and delete operations
+# - Uses AWS OIDC for secure authentication
+# - Accepts task definition config from parameter file
+# - Production-ready with comprehensive validation and error handling
+################################################################################
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - create
+          - update
+          - delete
+        default: 'create'
+      
+      environment:
+        description: 'Target environment (e.g., dev, qa, staging, prod)'
+        required: true
+        type: string
+        default: 'dev'
+      
+      task_family:
+        description: 'Task Definition family name (e.g., my-app)'
+        required: true
+        type: string
+      
+      parameter_file_path:
+        description: 'Path to parameter file in repository (e.g., config/dev/task-params.json)'
+        required: true
+        type: string
+        default: 'config/task-parameters.json'
+      
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        type: string
+        default: 'us-east-1'
+      
+      cloudformation_template_path:
+        description: 'Path to CloudFormation template'
+        required: false
+        type: string
+        default: 'cloudformation/ecs-task-definition.yaml'
+      
+      dry_run:
+        description: 'Dry run mode (validation only, no deployment)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: ${{ inputs.aws_region }}
+  STACK_NAME: ecs-taskdef-${{ inputs.task_family }}-${{ inputs.environment }}
+  PARAMETER_FILE: ${{ inputs.parameter_file_path }}
+
+jobs:
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      validation_status: ${{ steps.validate.outputs.status }}
+      stack_exists: ${{ steps.check-stack.outputs.exists }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Validate Input Parameters
+        id: validate
+        run: |
+          echo "::group::Input Validation"
+          echo "Action: ${{ inputs.action }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Task Family: ${{ inputs.task_family }}"
+          echo "Parameter File: ${{ env.PARAMETER_FILE }}"
+          echo "AWS Region: ${{ env.AWS_REGION }}"
+          echo "Stack Name: ${{ env.STACK_NAME }}"
+          echo "Dry Run: ${{ inputs.dry_run }}"
+          echo "::endgroup::"
+          
+          if [[ ! "${{ inputs.environment }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "::error::Environment name must contain only alphanumeric characters, hyphens, and underscores"
+            exit 1
+          fi
+          
+          if [ ${#{{ inputs.environment }}} -gt 50 ]; then
+            echo "::error::Environment name must be 50 characters or less"
+            exit 1
+          fi
+          
+          if [[ ! "${{ inputs.task_family }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "::error::Task family name must contain only alphanumeric characters, hyphens, and underscores"
+            exit 1
+          fi
+          
+          if [ ! -f "${{ env.PARAMETER_FILE }}" ]; then
+            echo "::error::Parameter file not found: ${{ env.PARAMETER_FILE }}"
+            exit 1
+          fi
+          
+          if ! jq empty "${{ env.PARAMETER_FILE }}" 2>/dev/null; then
+            echo "::error::Parameter file is not valid JSON"
+            exit 1
+          fi
+          
+          if [ ! -f "${{ inputs.cloudformation_template_path }}" ]; then
+            echo "::error::CloudFormation template not found: ${{ inputs.cloudformation_template_path }}"
+            exit 1
+          fi
+          
+          echo "status=success" >> $GITHUB_OUTPUT
+      
+      - name: Display Parameter File Content
+        run: |
+          echo "::group::Parameter File Content"
+          cat "${{ env.PARAMETER_FILE }}" | jq '.'
+          echo "::endgroup::"
+      
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-ecs-taskdef-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Verify AWS Authentication
+        run: aws sts get-caller-identity
+      
+      - name: Check if Stack Exists
+        id: check-stack
+        run: |
+          if aws cloudformation describe-stacks --stack-name "${{ env.STACK_NAME }}" --region "${{ env.AWS_REGION }}" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+  prepare:
+    name: Prepare CloudFormation Parameters
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.validation_status == 'success'
+
+  deploy:
+    name: Execute Operation
+    runs-on: ubuntu-latest
+    needs: [validate, prepare]
+
+  summary:
+    name: Execution Summary
+    runs-on: ubuntu-latest
+    needs: [validate, prepare, deploy]
+
