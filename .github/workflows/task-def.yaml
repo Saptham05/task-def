@@ -36,19 +36,19 @@ on:
         description: 'Path to parameter file in repository (e.g., config/dev/task-params.json)'
         required: true
         type: string
-        default: 'config/task-parameters.json'
+        default: 'parameters.json'
       
       aws_region:
         description: 'AWS Region'
         required: true
         type: string
-        default: 'us-east-1'
+        default: 'ap-south-1'
       
       cloudformation_template_path:
         description: 'Path to CloudFormation template'
         required: false
         type: string
-        default: 'cloudformation/ecs-task-definition.yaml'
+        default: 'task-CTF.yaml'
       
       dry_run:
         description: 'Dry run mode (validation only, no deployment)'
