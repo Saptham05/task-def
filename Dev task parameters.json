@@ -1,0 +1,55 @@
+{
+  "TaskCpu": "512",
+  "TaskMemory": "1024",
+  "RequiresCompatibilities": "FARGATE",
+  "NetworkMode": "awsvpc",
+  "ContainerName": "app",
+  "ContainerImage": "nginx:latest",
+  "ContainerMemory": 1024,
+  "ContainerPort": 80,
+  "HostPort": 80,
+  "Protocol": "tcp",
+  "Essential": "true",
+  "LogDriver": "awslogs",
+  "LogStreamPrefix": "ecs",
+  "TaskRoleArn": "",
+  "ExecutionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+  "EnvironmentVariables": [
+    {
+      "name": "ENVIRONMENT",
+      "value": "dev"
+    },
+    {
+      "name": "APP_NAME",
+      "value": "my-application"
+    },
+    {
+      "name": "LOG_LEVEL",
+      "value": "debug"
+    },
+    {
+      "name": "PORT",
+      "value": "80"
+    }
+  ],
+  "Secrets": [
+    {
+      "name": "DB_PASSWORD",
+      "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:dev/db/password"
+    },
+    {
+      "name": "API_KEY",
+      "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/dev/api-key"
+    }
+  ],
+  "HealthCheckCommand": "[\"CMD-SHELL\", \"curl -f http://localhost/ || exit 1\"]",
+  "HealthCheckInterval": 30,
+  "HealthCheckTimeout": 5,
+  "HealthCheckRetries": 3,
+  "HealthCheckStartPeriod": 60,
+  "RuntimePlatformCpuArchitecture": "X86_64",
+  "RuntimePlatformOperatingSystemFamily": "LINUX",
+  "EphemeralStorageSize": 30,
+  "ProjectTag": "MyProject",
+  "CostCenterTag": "Engineering"
+}
