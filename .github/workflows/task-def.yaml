@@ -61,6 +61,10 @@ env:
   AWS_REGION: ${{ inputs.aws_region }}
   STACK_NAME: ecs-taskdef-${{ inputs.task_family }}-${{ inputs.environment }}
   PARAMETER_FILE: ${{ inputs.parameter_file_path }}
+permissions:
+  id-token: write
+  contents: read
+  
 
 jobs:
   ################################################################################
