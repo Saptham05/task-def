@@ -328,12 +328,13 @@ jobs:
               value_type=$(echo "$raw_value" | jq -r 'type')
               
               if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
-                # For arrays/objects, compact and keep as JSON value (not string)
-                param_value=$(echo "$raw_value" | jq -c .)
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": $(echo "$param_value" | jq -R .)}" >> "$PARAM_FILE"
+                # For arrays/objects, compact and convert to string
+                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
+                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
               else
-                # For strings, numbers, booleans - output directly as JSON value
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": $(echo "$raw_value" | jq -c .)}" >> "$PARAM_FILE"
+                # For all other types (string, number, boolean), convert to string
+                param_value=$(echo "$raw_value" | jq -r 'tostring')
+                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": \"${param_value}\"}" >> "$PARAM_FILE"
               fi
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
@@ -402,12 +403,13 @@ jobs:
               value_type=$(echo "$raw_value" | jq -r 'type')
               
               if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
-                # For arrays/objects, compact and keep as JSON value (not string)
-                param_value=$(echo "$raw_value" | jq -c .)
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": $(echo "$param_value" | jq -R .)}" >> "$PARAM_FILE"
+                # For arrays/objects, compact and convert to string
+                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
+                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
               else
-                # For strings, numbers, booleans - output directly as JSON value
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": $(echo "$raw_value" | jq -c .)}" >> "$PARAM_FILE"
+                # For all other types (string, number, boolean), convert to string
+                param_value=$(echo "$raw_value" | jq -r 'tostring')
+                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": \"${param_value}\"}" >> "$PARAM_FILE"
               fi
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
