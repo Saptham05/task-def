@@ -347,15 +347,15 @@ jobs:
           # Execute create-stack
           aws cloudformation create-stack \
             --stack-name "${{ env.STACK_NAME }}" \
-            --template-body file://${{ inputs.cloudformation_template_path }} \
-            --parameters file://"$PARAM_FILE" \
+            --template-body "file://${{ inputs.cloudformation_template_path }}" \
+            --parameters "file://$PARAM_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --tags \
-              Key=Environment,Value=${{ inputs.environment }} \
-              Key=ManagedBy,Value=GitHubActions \
-              Key=Repository,Value=${{ github.repository }} \
-              Key=Workflow,Value=${{ github.workflow }} \
-              Key=RunId,Value=${{ github.run_id }} \
+              "Key=Environment,Value=${{ inputs.environment }}" \
+              "Key=ManagedBy,Value=GitHubActions" \
+              "Key=Repository,Value=${{ github.repository }}" \
+              "Key=Workflow,Value=${{ github.workflow }}" \
+              "Key=RunId,Value=${{ github.run_id }}" \
             --region "${{ env.AWS_REGION }}"
           
           # Cleanup
@@ -421,8 +421,8 @@ jobs:
           # Execute update-stack
           UPDATE_OUTPUT=$(aws cloudformation update-stack \
             --stack-name "${{ env.STACK_NAME }}" \
-            --template-body file://${{ inputs.cloudformation_template_path }} \
-            --parameters file://"$PARAM_FILE" \
+            --template-body "file://${{ inputs.cloudformation_template_path }}" \
+            --parameters "file://$PARAM_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "${{ env.AWS_REGION }}" 2>&1) || {
               if echo "$UPDATE_OUTPUT" | grep -q "No updates are to be performed"; then
@@ -592,4 +592,3 @@ jobs:
               repo: context.repo.repo,
               body: summary
             });
-
