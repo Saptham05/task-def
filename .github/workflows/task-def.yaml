@@ -36,19 +36,19 @@ on:
         description: 'Path to parameter file in repository (e.g., config/dev/task-params.json)'
         required: true
         type: string
-        default: 'config/task-parameters.json'
+        default: 'parameters.json'
       
       aws_region:
         description: 'AWS Region'
         required: true
         type: string
-        default: 'us-east-1'
+        default: 'ap-south-1'
       
       cloudformation_template_path:
         description: 'Path to CloudFormation template'
         required: false
         type: string
-        default: 'cloudformation/ecs-task-definition.yaml'
+        default: 'task-CTF.yaml'
       
       dry_run:
         description: 'Dry run mode (validation only, no deployment)'
@@ -100,7 +100,8 @@ jobs:
           fi
           
           # Validate environment name length (CloudFormation stack name limits)
-          ENV_LENGTH=${{ inputs.environment }}
+          ENV_NAME="${{ inputs.environment }}"
+          ENV_LENGTH=${ENV_NAME}
           if [ "$ENV_LENGTH" -gt 50 ]; then
             echo "::error::Environment name must be 50 characters or less (current: $ENV_LENGTH)"
             exit 1
@@ -320,15 +321,24 @@ jobs:
           
           # Add parameters from JSON file
           while IFS= read -r key; do
-            value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
-            if [ "$value" != "null" ] && [ -n "$value" ]; then
-              # For arrays and objects, keep as JSON string
-              if echo "$value" | jq -e 'type' | grep -qE 'array|object' 2>/dev/null; then
-                value=$(echo "$PARAMS" | jq -c --arg k "$key" '.[$k]')
+            raw_value=$(echo "$PARAMS" | jq --arg k "$key" '.[$k]')
+            
+            if [ "$raw_value" != "null" ] && [ -n "$raw_value" ]; then
+              # Check if it's an array or object
+              value_type=$(echo "$raw_value" | jq -r 'type')
+              
+              if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
+                # For arrays/objects, compact and stringify
+                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
+              elif [ "$value_type" == "string" ]; then
+                # For strings, just quote them
+                param_value=$(echo "$raw_value" | jq -R .)
+              else
+                # For numbers/booleans, convert to string
+                param_value=$(echo "$raw_value" | jq -r . | jq -R .)
               fi
-              # Escape the value for JSON
-              escaped_value=$(echo "$value" | jq -Rs .)
-              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${escaped_value}}" >> "$PARAM_FILE"
+              
+              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
           
@@ -389,15 +399,24 @@ jobs:
           
           # Add parameters from JSON file
           while IFS= read -r key; do
-            value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
-            if [ "$value" != "null" ] && [ -n "$value" ]; then
-              # For arrays and objects, keep as JSON string
-              if echo "$value" | jq -e 'type' | grep -qE 'array|object' 2>/dev/null; then
-                value=$(echo "$PARAMS" | jq -c --arg k "$key" '.[$k]')
+            raw_value=$(echo "$PARAMS" | jq --arg k "$key" '.[$k]')
+            
+            if [ "$raw_value" != "null" ] && [ -n "$raw_value" ]; then
+              # Check if it's an array or object
+              value_type=$(echo "$raw_value" | jq -r 'type')
+              
+              if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
+                # For arrays/objects, compact and stringify
+                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
+              elif [ "$value_type" == "string" ]; then
+                # For strings, just quote them
+                param_value=$(echo "$raw_value" | jq -R .)
+              else
+                # For numbers/booleans, convert to string
+                param_value=$(echo "$raw_value" | jq -r . | jq -R .)
               fi
-              # Escape the value for JSON
-              escaped_value=$(echo "$value" | jq -Rs .)
-              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${escaped_value}}" >> "$PARAM_FILE"
+              
+              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
           
