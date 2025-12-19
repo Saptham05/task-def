@@ -1,127 +1,68 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Comprehensive ECS Task Definition - Supports all ECS task definition components'
+Description: Fully parametrized ECS Task Definition with multi-container & sidecar support
 
 ################################################################################
-# Parameters - All configurable aspects of the task definition
+# PARAMETERS
 ################################################################################
 Parameters:
   Family:
     Type: String
-    Description: 'Task definition family name'
-    MinLength: 1
-    MaxLength: 255
-  
+
   Environment:
     Type: String
-    Description: 'Environment name (e.g., dev, qa, staging, prod, or custom)'
-    MinLength: 1
-    MaxLength: 50
-  
+
   TaskCpu:
     Type: String
-    Description: 'Task-level CPU units (256, 512, 1024, 2048, 4096)'
     Default: '256'
-  
+
   TaskMemory:
     Type: String
-    Description: 'Task-level memory in MB (512, 1024, 2048, etc.)'
     Default: '512'
-  
+
   RequiresCompatibilities:
     Type: String
-    Description: 'Launch type compatibility (FARGATE, EC2, or FARGATE,EC2)'
-    Default: 'FARGATE'
-  
+    Default: FARGATE
+
   NetworkMode:
     Type: String
-    Description: 'Docker networking mode'
-    Default: 'awsvpc'
-    AllowedValues:
-      - awsvpc
-      - bridge
-      - host
-      - none
-  
+    Default: awsvpc
+
   TaskRoleArn:
     Type: String
-    Description: 'IAM role ARN for task'
     Default: ''
-  
+
   ExecutionRoleArn:
     Type: String
-    Description: 'IAM role ARN for execution'
     Default: ''
-  
-  ContainerName:
+
+  Containers:
     Type: String
-    Default: 'app'
-  
-  ContainerImage:
+    Description: JSON array of ECS containerDefinitions
+    Default: '[]'
+
+  RuntimePlatformCpuArchitecture:
     Type: String
-    MinLength: 1
-  
-  ContainerCpu:
+    Default: X86_64
+
+  RuntimePlatformOperatingSystemFamily:
+    Type: String
+    Default: LINUX
+
+  EphemeralStorageSize:
     Type: Number
     Default: 0
-  
-  ContainerMemory:
-    Type: Number
-    Default: 512
-  
-  ContainerMemoryReservation:
-    Type: Number
-    Default: 0
-  
-  Essential:
-    Type: String
-    Default: 'true'
-  
-  ContainerPort:
-    Type: Number
-    Default: 80
-  
-  HostPort:
-    Type: Number
-    Default: 80
-  
-  Protocol:
-    Type: String
-    Default: 'tcp'
-  
-  EnvironmentVariables:
-    Type: String
-    Default: '[]'
-  
-  Secrets:
-    Type: String
-    Default: '[]'
-  
-  LogDriver:
-    Type: String
-    Default: 'awslogs'
-  
-  LogGroupName:
-    Type: String
-    Default: ''
-  
-  LogStreamPrefix:
-    Type: String
-    Default: 'ecs'
-  
-  HealthCheckCommand:
-    Type: String
-    Default: ''
-  
-  Privileged:
-    Type: String
-    Default: 'false'
-  
-  ReadonlyRootFilesystem:
-    Type: String
-    Default: 'false'
 
 ################################################################################
-# Resources
+# CONDITIONS
+################################################################################
+Conditions:
+  HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
+  HasExecutionRole: !Not [!Equals [!Ref ExecutionRoleArn, '']]
+  HasEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 0]]
+  HasContainers: !Not [!Equals [!Ref Containers, '[]']]
+
+################################################################################
+# RESOURCES
 ################################################################################
 Resources:
   ECSTaskDefinition:
@@ -130,27 +71,35 @@ Resources:
       Family: !Sub '${Family}-${Environment}'
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
-      RequiresCompatibilities: !Split [',', !Ref RequiresCompatibilities]
       NetworkMode: !Ref NetworkMode
-      ContainerDefinitions:
-        - Name: !Ref ContainerName
-          Image: !Ref ContainerImage
-          Cpu: !Ref ContainerCpu
-          Memory: !Ref ContainerMemory
-          Essential: !Ref Essential
-          PortMappings:
-            - ContainerPort: !Ref ContainerPort
-              HostPort: !Ref HostPort
-              Protocol: !Ref Protocol
-          LogConfiguration:
-            LogDriver: !Ref LogDriver
-            Options:
-              awslogs-group: !Sub '/ecs/${Family}-${Environment}'
-              awslogs-region: !Ref 'AWS::Region'
-              awslogs-stream-prefix: !Ref LogStreamPrefix
+      RequiresCompatibilities: !Split [",", !Ref RequiresCompatibilities]
+
+      TaskRoleArn: !If
+        - HasTaskRole
+        - !Ref TaskRoleArn
+        - !Ref AWS::NoValue
+
+      ExecutionRoleArn: !If
+        - HasExecutionRole
+        - !Ref ExecutionRoleArn
+        - !Ref AWS::NoValue
+
+      RuntimePlatform:
+        CpuArchitecture: !Ref RuntimePlatformCpuArchitecture
+        OperatingSystemFamily: !Ref RuntimePlatformOperatingSystemFamily
+
+      EphemeralStorage: !If
+        - HasEphemeralStorage
+        - SizeInGiB: !Ref EphemeralStorageSize
+        - !Ref AWS::NoValue
+
+      ContainerDefinitions: !If
+        - HasContainers
+        - !FromJson !Ref Containers
+        - !Ref AWS::NoValue
 
 ################################################################################
-# Outputs
+# OUTPUTS
 ################################################################################
 Outputs:
   TaskDefinitionArn:
