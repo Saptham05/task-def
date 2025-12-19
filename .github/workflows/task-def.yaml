@@ -308,25 +308,26 @@ jobs:
         run: |
           echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
           
-          # Read the parameter file
-          PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
-          
           # Create a temporary file for parameters
           PARAM_FILE=$(mktemp)
           
-          # Start building the parameter array using Python for reliable JSON handling
-          python3 << 'PYTHON_SCRIPT' > "$PARAM_FILE"
+          # Create Python script to process parameters
+          cat > /tmp/process_params.py << 'EOF'
 import json
 import sys
 
-# Read the parameters from file
-with open('${{ env.PARAMETER_FILE }}', 'r') as f:
+# Read parameters
+param_file = sys.argv[1]
+task_family = sys.argv[2]
+environment = sys.argv[3]
+
+with open(param_file, 'r') as f:
     params = json.load(f)
 
 # Build CloudFormation parameters array
 cf_params = [
-    {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
-    {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+    {"ParameterKey": "Family", "ParameterValue": task_family},
+    {"ParameterKey": "Environment", "ParameterValue": environment}
 ]
 
 # Add all parameters from the JSON file
@@ -350,7 +351,10 @@ for key, value in params.items():
 
 # Output as JSON
 print(json.dumps(cf_params, indent=2))
-PYTHON_SCRIPT
+EOF
+          
+          # Run Python script to generate parameters
+          python3 /tmp/process_params.py "${{ env.PARAMETER_FILE }}" "${{ inputs.task_family }}" "${{ inputs.environment }}" > "$PARAM_FILE"
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
@@ -372,6 +376,7 @@ PYTHON_SCRIPT
           
           # Cleanup
           rm -f "$PARAM_FILE"
+          rm -f /tmp/process_params.py
           
           echo "Stack creation initiated"
           echo "::endgroup::"
@@ -394,25 +399,26 @@ PYTHON_SCRIPT
         run: |
           echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
           
-          # Read the parameter file
-          PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
-          
           # Create a temporary file for parameters
           PARAM_FILE=$(mktemp)
           
-          # Start building the parameter array using Python for reliable JSON handling
-          python3 << 'PYTHON_SCRIPT' > "$PARAM_FILE"
+          # Create Python script to process parameters
+          cat > /tmp/process_params.py << 'EOF'
 import json
 import sys
 
-# Read the parameters from file
-with open('${{ env.PARAMETER_FILE }}', 'r') as f:
+# Read parameters
+param_file = sys.argv[1]
+task_family = sys.argv[2]
+environment = sys.argv[3]
+
+with open(param_file, 'r') as f:
     params = json.load(f)
 
 # Build CloudFormation parameters array
 cf_params = [
-    {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
-    {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+    {"ParameterKey": "Family", "ParameterValue": task_family},
+    {"ParameterKey": "Environment", "ParameterValue": environment}
 ]
 
 # Add all parameters from the JSON file
@@ -436,7 +442,10 @@ for key, value in params.items():
 
 # Output as JSON
 print(json.dumps(cf_params, indent=2))
-PYTHON_SCRIPT
+EOF
+          
+          # Run Python script to generate parameters
+          python3 /tmp/process_params.py "${{ env.PARAMETER_FILE }}" "${{ inputs.task_family }}" "${{ inputs.environment }}" > "$PARAM_FILE"
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
@@ -453,16 +462,19 @@ PYTHON_SCRIPT
                 echo "⚠️  No updates needed - stack is already up to date"
                 echo "no_changes=true" >> $GITHUB_OUTPUT
                 rm -f "$PARAM_FILE"
+                rm -f /tmp/process_params.py
                 exit 0
               else
                 echo "::error::Update failed: $UPDATE_OUTPUT"
                 rm -f "$PARAM_FILE"
+                rm -f /tmp/process_params.py
                 exit 1
               fi
             }
           
           # Cleanup
           rm -f "$PARAM_FILE"
+          rm -f /tmp/process_params.py
           
           echo "Stack update initiated"
           echo "no_changes=false" >> $GITHUB_OUTPUT
