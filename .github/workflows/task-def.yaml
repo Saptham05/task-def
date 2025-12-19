@@ -61,10 +61,6 @@ env:
   AWS_REGION: ${{ inputs.aws_region }}
   STACK_NAME: ecs-taskdef-${{ inputs.task_family }}-${{ inputs.environment }}
   PARAMETER_FILE: ${{ inputs.parameter_file_path }}
-permissions:
-  id-token: write
-  contents: read
-  
 
 jobs:
   ################################################################################
@@ -91,7 +87,7 @@ jobs:
           echo "Parameter File: ${{ env.PARAMETER_FILE }}"
           echo "AWS Region: ${{ env.AWS_REGION }}"
           echo "Stack Name: ${{ env.STACK_NAME }}"
-          echo "Dry Run+: ${{ inputs.dry_run }}"
+          echo "Dry Run: ${{ inputs.dry_run }}"
           echo "::endgroup::"
           
           # Validate environment name format (alphanumeric, hyphens, underscores only)
@@ -101,9 +97,9 @@ jobs:
           fi
           
           # Validate environment name length (CloudFormation stack name limits)
-          # if [ ${#{{ inputs.environment }}} -gt 50 ]; then
-          if [ ${{ inputs.environment }} -gt 50 ]; then
-            echo "::error::Environment name must be 50 characters or less"
+          ENV_LENGTH=${{ inputs.environment }}
+          if [ "$ENV_LENGTH" -gt 50 ]; then
+            echo "::error::Environment name must be 50 characters or less (current: $ENV_LENGTH)"
             exit 1
           fi
           
@@ -140,10 +136,11 @@ jobs:
           cat "${{ env.PARAMETER_FILE }}" | jq '.'
           echo "::endgroup::"
       
+      # Configure AWS credentials using OIDC
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::789406175361:role/GitHubActionsOIDCRole
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           role-session-name: github-actions-ecs-taskdef-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
       
@@ -188,6 +185,7 @@ jobs:
           fi
           
           echo "✅ Action '$ACTION' is valid for current stack state"
+
   ################################################################################
   # Job 2: Process Parameters and Prepare CloudFormation
   ################################################################################
@@ -202,13 +200,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}  
       
       - name: Process Parameter File
         id: prepare-params
@@ -267,12 +258,13 @@ jobs:
           echo "✅ Template validation successful"
           echo "::endgroup::"
       
-      #- name: Configure AWS Credentials (OIDC)
-       # uses: aws-actions/configure-aws-credentials@v4
-        #with:
-         # role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          #role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
-          #aws-region: ${{ env.AWS_REGION }}
+      # Configure AWS credentials for this job
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
   ################################################################################
   # Job 3: Execute CloudFormation Operation
@@ -289,6 +281,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
       
+      # Configure AWS credentials using OIDC
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -308,25 +301,39 @@ jobs:
           # Read and process parameters
           PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
           
-          # Build parameter overrides
-          PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
+          # Create a temporary file for parameters
+          PARAM_FILE=$(mktemp)
           
+          # Build parameter array in proper format
+          echo "[" > "$PARAM_FILE"
+          echo "  {\"ParameterKey\": \"Family\", \"ParameterValue\": \"${{ inputs.task_family }}\"}," >> "$PARAM_FILE"
+          echo "  {\"ParameterKey\": \"Environment\", \"ParameterValue\": \"${{ inputs.environment }}\"}" >> "$PARAM_FILE"
+          
+          # Add parameters from JSON file
           while IFS= read -r key; do
             value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
             if [ "$value" != "null" ] && [ -n "$value" ]; then
-              # Escape special characters for CLI
-              if echo "$value" | jq -e 'type' | grep -qE 'array|object'; then
-                value=$(echo "$value" | jq -c . | sed 's/"/\\"/g')
+              # For arrays and objects, keep as JSON string
+              if echo "$value" | jq -e 'type' | grep -qE 'array|object' 2>/dev/null; then
+                value=$(echo "$PARAMS" | jq -c --arg k "$key" '.[$k]')
               fi
-              PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
+              # Escape the value for JSON
+              escaped_value=$(echo "$value" | jq -Rs .)
+              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${escaped_value}}" >> "$PARAM_FILE"
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
+          
+          echo "]" >> "$PARAM_FILE"
+          
+          # Display parameters for debugging
+          echo "CloudFormation Parameters:"
+          cat "$PARAM_FILE" | jq '.'
           
           # Execute create-stack
           aws cloudformation create-stack \
             --stack-name "${{ env.STACK_NAME }}" \
             --template-body file://${{ inputs.cloudformation_template_path }} \
-            --parameters ${PARAM_OVERRIDES} \
+            --parameters file://"$PARAM_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --tags \
               Key=Environment,Value=${{ inputs.environment }} \
@@ -335,6 +342,9 @@ jobs:
               Key=Workflow,Value=${{ github.workflow }} \
               Key=RunId,Value=${{ github.run_id }} \
             --region "${{ env.AWS_REGION }}"
+          
+          # Cleanup
+          rm -f "$PARAM_FILE"
           
           echo "Stack creation initiated"
           echo "::endgroup::"
@@ -360,35 +370,55 @@ jobs:
           # Read and process parameters
           PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
           
-          # Build parameter overrides
-          PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
+          # Create a temporary file for parameters
+          PARAM_FILE=$(mktemp)
           
+          # Build parameter array in proper format
+          echo "[" > "$PARAM_FILE"
+          echo "  {\"ParameterKey\": \"Family\", \"ParameterValue\": \"${{ inputs.task_family }}\"}," >> "$PARAM_FILE"
+          echo "  {\"ParameterKey\": \"Environment\", \"ParameterValue\": \"${{ inputs.environment }}\"}" >> "$PARAM_FILE"
+          
+          # Add parameters from JSON file
           while IFS= read -r key; do
             value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
             if [ "$value" != "null" ] && [ -n "$value" ]; then
-              if echo "$value" | jq -e 'type' | grep -qE 'array|object'; then
-                value=$(echo "$value" | jq -c . | sed 's/"/\\"/g')
+              # For arrays and objects, keep as JSON string
+              if echo "$value" | jq -e 'type' | grep -qE 'array|object' 2>/dev/null; then
+                value=$(echo "$PARAMS" | jq -c --arg k "$key" '.[$k]')
               fi
-              PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
+              # Escape the value for JSON
+              escaped_value=$(echo "$value" | jq -Rs .)
+              echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${escaped_value}}" >> "$PARAM_FILE"
             fi
           done < <(echo "$PARAMS" | jq -r 'keys[]')
+          
+          echo "]" >> "$PARAM_FILE"
+          
+          # Display parameters for debugging
+          echo "CloudFormation Parameters:"
+          cat "$PARAM_FILE" | jq '.'
           
           # Execute update-stack
           UPDATE_OUTPUT=$(aws cloudformation update-stack \
             --stack-name "${{ env.STACK_NAME }}" \
             --template-body file://${{ inputs.cloudformation_template_path }} \
-            --parameters ${PARAM_OVERRIDES} \
+            --parameters file://"$PARAM_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "${{ env.AWS_REGION }}" 2>&1) || {
               if echo "$UPDATE_OUTPUT" | grep -q "No updates are to be performed"; then
                 echo "⚠️  No updates needed - stack is already up to date"
                 echo "no_changes=true" >> $GITHUB_OUTPUT
+                rm -f "$PARAM_FILE"
                 exit 0
               else
                 echo "::error::Update failed: $UPDATE_OUTPUT"
+                rm -f "$PARAM_FILE"
                 exit 1
               fi
             }
+          
+          # Cleanup
+          rm -f "$PARAM_FILE"
           
           echo "Stack update initiated"
           echo "no_changes=false" >> $GITHUB_OUTPUT
@@ -458,6 +488,7 @@ jobs:
           
           echo "task_definition_arn=${TASK_DEF_ARN}" >> $GITHUB_OUTPUT
           echo "TASK_DEFINITION_ARN=${TASK_DEF_ARN}" >> $GITHUB_ENV
+
   ################################################################################
   # Job 4: Summary and Notification
   ################################################################################
