@@ -308,38 +308,49 @@ jobs:
         run: |
           echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
           
-          # Read and process parameters
+          # Read the parameter file
           PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
           
           # Create a temporary file for parameters
           PARAM_FILE=$(mktemp)
           
-          # Build parameter array in proper format
-          echo "[" > "$PARAM_FILE"
-          echo "  {\"ParameterKey\": \"Family\", \"ParameterValue\": \"${{ inputs.task_family }}\"}," >> "$PARAM_FILE"
-          echo "  {\"ParameterKey\": \"Environment\", \"ParameterValue\": \"${{ inputs.environment }}\"}" >> "$PARAM_FILE"
-          
-          # Add parameters from JSON file
-          while IFS= read -r key; do
-            raw_value=$(echo "$PARAMS" | jq --arg k "$key" '.[$k]')
-            
-            if [ "$raw_value" != "null" ] && [ -n "$raw_value" ]; then
-              # Check if it's an array or object
-              value_type=$(echo "$raw_value" | jq -r 'type')
-              
-              if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
-                # For arrays/objects, compact and convert to string
-                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
-              else
-                # For all other types (string, number, boolean), convert to string
-                param_value=$(echo "$raw_value" | jq -r 'tostring')
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": \"${param_value}\"}" >> "$PARAM_FILE"
-              fi
-            fi
-          done < <(echo "$PARAMS" | jq -r 'keys[]')
-          
-          echo "]" >> "$PARAM_FILE"
+          # Start building the parameter array using Python for reliable JSON handling
+          python3 << 'PYTHON_SCRIPT' > "$PARAM_FILE"
+import json
+import sys
+
+# Read the parameters from file
+with open('${{ env.PARAMETER_FILE }}', 'r') as f:
+    params = json.load(f)
+
+# Build CloudFormation parameters array
+cf_params = [
+    {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
+    {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+]
+
+# Add all parameters from the JSON file
+for key, value in params.items():
+    if value is not None and value != "":
+        # Convert all values to strings (CloudFormation requirement)
+        if isinstance(value, (list, dict)):
+            # For arrays and objects, convert to JSON string
+            param_value = json.dumps(value, separators=(',', ':'))
+        elif isinstance(value, bool):
+            # Convert boolean to lowercase string
+            param_value = str(value).lower()
+        else:
+            # Convert everything else to string
+            param_value = str(value)
+        
+        cf_params.append({
+            "ParameterKey": key,
+            "ParameterValue": param_value
+        })
+
+# Output as JSON
+print(json.dumps(cf_params, indent=2))
+PYTHON_SCRIPT
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
@@ -383,38 +394,49 @@ jobs:
         run: |
           echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
           
-          # Read and process parameters
+          # Read the parameter file
           PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
           
           # Create a temporary file for parameters
           PARAM_FILE=$(mktemp)
           
-          # Build parameter array in proper format
-          echo "[" > "$PARAM_FILE"
-          echo "  {\"ParameterKey\": \"Family\", \"ParameterValue\": \"${{ inputs.task_family }}\"}," >> "$PARAM_FILE"
-          echo "  {\"ParameterKey\": \"Environment\", \"ParameterValue\": \"${{ inputs.environment }}\"}" >> "$PARAM_FILE"
-          
-          # Add parameters from JSON file
-          while IFS= read -r key; do
-            raw_value=$(echo "$PARAMS" | jq --arg k "$key" '.[$k]')
-            
-            if [ "$raw_value" != "null" ] && [ -n "$raw_value" ]; then
-              # Check if it's an array or object
-              value_type=$(echo "$raw_value" | jq -r 'type')
-              
-              if [ "$value_type" == "array" ] || [ "$value_type" == "object" ]; then
-                # For arrays/objects, compact and convert to string
-                param_value=$(echo "$raw_value" | jq -c . | jq -R .)
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": ${param_value}}" >> "$PARAM_FILE"
-              else
-                # For all other types (string, number, boolean), convert to string
-                param_value=$(echo "$raw_value" | jq -r 'tostring')
-                echo "  ,{\"ParameterKey\": \"${key}\", \"ParameterValue\": \"${param_value}\"}" >> "$PARAM_FILE"
-              fi
-            fi
-          done < <(echo "$PARAMS" | jq -r 'keys[]')
-          
-          echo "]" >> "$PARAM_FILE"
+          # Start building the parameter array using Python for reliable JSON handling
+          python3 << 'PYTHON_SCRIPT' > "$PARAM_FILE"
+import json
+import sys
+
+# Read the parameters from file
+with open('${{ env.PARAMETER_FILE }}', 'r') as f:
+    params = json.load(f)
+
+# Build CloudFormation parameters array
+cf_params = [
+    {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
+    {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+]
+
+# Add all parameters from the JSON file
+for key, value in params.items():
+    if value is not None and value != "":
+        # Convert all values to strings (CloudFormation requirement)
+        if isinstance(value, (list, dict)):
+            # For arrays and objects, convert to JSON string
+            param_value = json.dumps(value, separators=(',', ':'))
+        elif isinstance(value, bool):
+            # Convert boolean to lowercase string
+            param_value = str(value).lower()
+        else:
+            # Convert everything else to string
+            param_value = str(value)
+        
+        cf_params.append({
+            "ParameterKey": key,
+            "ParameterValue": param_value
+        })
+
+# Output as JSON
+print(json.dumps(cf_params, indent=2))
+PYTHON_SCRIPT
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
