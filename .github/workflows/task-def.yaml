@@ -36,19 +36,19 @@ on:
         description: 'Path to parameter file in repository (e.g., config/dev/task-params.json)'
         required: true
         type: string
-        default: 'parameters.json'
+        default: 'config/task-parameters.json'
       
       aws_region:
         description: 'AWS Region'
         required: true
         type: string
-        default: 'ap-south-1'
+        default: 'us-east-1'
       
       cloudformation_template_path:
         description: 'Path to CloudFormation template'
         required: false
         type: string
-        default: 'task-CTF.yaml'
+        default: 'cloudformation/ecs-task-definition.yaml'
       
       dry_run:
         description: 'Dry run mode (validation only, no deployment)'
@@ -69,6 +69,9 @@ jobs:
   validate:
     name: Validate Configuration
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       validation_status: ${{ steps.validate.outputs.status }}
       stack_exists: ${{ steps.check-stack.outputs.exists }}
@@ -97,7 +100,7 @@ jobs:
           fi
           
           # Validate environment name length (CloudFormation stack name limits)
-          ENV_LENGTH=${{ inputs.environment }}
+          ENV_LENGTH=${#{{ inputs.environment }}}
           if [ "$ENV_LENGTH" -gt 50 ]; then
             echo "::error::Environment name must be 50 characters or less (current: $ENV_LENGTH)"
             exit 1
@@ -192,6 +195,9 @@ jobs:
   prepare:
     name: Prepare CloudFormation Parameters
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     needs: validate
     if: needs.validate.outputs.validation_status == 'success'
     outputs:
@@ -200,6 +206,14 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+      
+      # Configure AWS credentials for this job
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
       
       - name: Process Parameter File
         id: prepare-params
@@ -257,14 +271,6 @@ jobs:
             --region "${{ env.AWS_REGION }}" || exit 1
           echo "✅ Template validation successful"
           echo "::endgroup::"
-      
-      # Configure AWS credentials for this job
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
 
   ################################################################################
   # Job 3: Execute CloudFormation Operation
@@ -272,6 +278,9 @@ jobs:
   deploy:
     name: Execute ${{ inputs.action }} Operation
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     needs: [validate, prepare]
     if: |
       needs.validate.outputs.validation_status == 'success' &&
