@@ -308,63 +308,27 @@ jobs:
         run: |
           echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
           
-          # Create a temporary file for parameters
-          PARAM_FILE=$(mktemp)
+          # Read parameter file (already in CloudFormation format)
+          PARAM_FILE="${{ env.PARAMETER_FILE }}"
           
-          # Create Python script to process parameters
-          cat > /tmp/process_params.py << 'EOF'
-import json
-import sys
-
-# Read parameters
-param_file = sys.argv[1]
-task_family = sys.argv[2]
-environment = sys.argv[3]
-
-with open(param_file, 'r') as f:
-    params = json.load(f)
-
-# Build CloudFormation parameters array
-cf_params = [
-    {"ParameterKey": "Family", "ParameterValue": task_family},
-    {"ParameterKey": "Environment", "ParameterValue": environment}
-]
-
-# Add all parameters from the JSON file
-for key, value in params.items():
-    if value is not None and value != "":
-        # Convert all values to strings (CloudFormation requirement)
-        if isinstance(value, (list, dict)):
-            # For arrays and objects, convert to JSON string
-            param_value = json.dumps(value, separators=(',', ':'))
-        elif isinstance(value, bool):
-            # Convert boolean to lowercase string
-            param_value = str(value).lower()
-        else:
-            # Convert everything else to string
-            param_value = str(value)
-        
-        cf_params.append({
-            "ParameterKey": key,
-            "ParameterValue": param_value
-        })
-
-# Output as JSON
-print(json.dumps(cf_params, indent=2))
-EOF
+          # Add Family and Environment parameters
+          TEMP_FILE=$(mktemp)
           
-          # Run Python script to generate parameters
-          python3 /tmp/process_params.py "${{ env.PARAMETER_FILE }}" "${{ inputs.task_family }}" "${{ inputs.environment }}" > "$PARAM_FILE"
+          # Parse existing parameters and add Family/Environment
+          jq '. + [
+            {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
+            {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+          ]' "$PARAM_FILE" > "$TEMP_FILE"
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
-          cat "$PARAM_FILE" | jq '.'
+          cat "$TEMP_FILE" | jq '.'
           
           # Execute create-stack
           aws cloudformation create-stack \
             --stack-name "${{ env.STACK_NAME }}" \
             --template-body "file://${{ inputs.cloudformation_template_path }}" \
-            --parameters "file://$PARAM_FILE" \
+            --parameters "file://$TEMP_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --tags \
               "Key=Environment,Value=${{ inputs.environment }}" \
@@ -375,8 +339,7 @@ EOF
             --region "${{ env.AWS_REGION }}"
           
           # Cleanup
-          rm -f "$PARAM_FILE"
-          rm -f /tmp/process_params.py
+          rm -f "$TEMP_FILE"
           
           echo "Stack creation initiated"
           echo "::endgroup::"
@@ -399,82 +362,43 @@ EOF
         run: |
           echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
           
-          # Create a temporary file for parameters
-          PARAM_FILE=$(mktemp)
+          # Read parameter file (already in CloudFormation format)
+          PARAM_FILE="${{ env.PARAMETER_FILE }}"
           
-          # Create Python script to process parameters
-          cat > /tmp/process_params.py << 'EOF'
-import json
-import sys
-
-# Read parameters
-param_file = sys.argv[1]
-task_family = sys.argv[2]
-environment = sys.argv[3]
-
-with open(param_file, 'r') as f:
-    params = json.load(f)
-
-# Build CloudFormation parameters array
-cf_params = [
-    {"ParameterKey": "Family", "ParameterValue": task_family},
-    {"ParameterKey": "Environment", "ParameterValue": environment}
-]
-
-# Add all parameters from the JSON file
-for key, value in params.items():
-    if value is not None and value != "":
-        # Convert all values to strings (CloudFormation requirement)
-        if isinstance(value, (list, dict)):
-            # For arrays and objects, convert to JSON string
-            param_value = json.dumps(value, separators=(',', ':'))
-        elif isinstance(value, bool):
-            # Convert boolean to lowercase string
-            param_value = str(value).lower()
-        else:
-            # Convert everything else to string
-            param_value = str(value)
-        
-        cf_params.append({
-            "ParameterKey": key,
-            "ParameterValue": param_value
-        })
-
-# Output as JSON
-print(json.dumps(cf_params, indent=2))
-EOF
+          # Add Family and Environment parameters
+          TEMP_FILE=$(mktemp)
           
-          # Run Python script to generate parameters
-          python3 /tmp/process_params.py "${{ env.PARAMETER_FILE }}" "${{ inputs.task_family }}" "${{ inputs.environment }}" > "$PARAM_FILE"
+          # Parse existing parameters and add Family/Environment
+          jq '. + [
+            {"ParameterKey": "Family", "ParameterValue": "${{ inputs.task_family }}"},
+            {"ParameterKey": "Environment", "ParameterValue": "${{ inputs.environment }}"}
+          ]' "$PARAM_FILE" > "$TEMP_FILE"
           
           # Display parameters for debugging
           echo "CloudFormation Parameters:"
-          cat "$PARAM_FILE" | jq '.'
+          cat "$TEMP_FILE" | jq '.'
           
           # Execute update-stack
           UPDATE_OUTPUT=$(aws cloudformation update-stack \
             --stack-name "${{ env.STACK_NAME }}" \
             --template-body "file://${{ inputs.cloudformation_template_path }}" \
-            --parameters "file://$PARAM_FILE" \
+            --parameters "file://$TEMP_FILE" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "${{ env.AWS_REGION }}" 2>&1) || {
               if echo "$UPDATE_OUTPUT" | grep -q "No updates are to be performed"; then
                 echo "⚠️  No updates needed - stack is already up to date"
                 echo "no_changes=true" >> $GITHUB_OUTPUT
-                rm -f "$PARAM_FILE"
-                rm -f /tmp/process_params.py
+                rm -f "$TEMP_FILE"
                 exit 0
               else
                 echo "::error::Update failed: $UPDATE_OUTPUT"
-                rm -f "$PARAM_FILE"
-                rm -f /tmp/process_params.py
+                rm -f "$TEMP_FILE"
                 exit 1
               fi
             }
           
           # Cleanup
-          rm -f "$PARAM_FILE"
-          rm -f /tmp/process_params.py
+          rm -f "$TEMP_FILE"
           
           echo "Stack update initiated"
           echo "no_changes=false" >> $GITHUB_OUTPUT
