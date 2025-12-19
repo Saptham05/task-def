@@ -188,7 +188,6 @@ jobs:
           fi
           
           echo "✅ Action '$ACTION' is valid for current stack state"
-
   ################################################################################
   # Job 2: Process Parameters and Prepare CloudFormation
   ################################################################################
@@ -278,151 +277,187 @@ jobs:
   ################################################################################
   # Job 3: Execute CloudFormation Operation
   ################################################################################
-
-
   deploy:
-  name: Execute ${{ inputs.action }} Operation
-  runs-on: ubuntu-latest
-  needs: [validate, prepare]
-  if: |
-    needs.validate.outputs.validation_status == 'success' &&
-    inputs.dry_run == false
-
-  steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-
-    - name: Configure AWS Credentials (OIDC)
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-        role-session-name: github-actions-ecs-taskdef-deploy-${{ github.run_id }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    ############################################################################
-    # CREATE STACK
-    ############################################################################
-    - name: Create CloudFormation Stack
-      if: inputs.action == 'create'
-      run: |
-        echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
-
-        PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
-
-        PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
-
-        while IFS= read -r key; do
-
-          # 🚫 Skip complex parameters (handled in CloudFormation)
-          case "$key" in
-            EnvironmentVariables|Secrets|HealthCheckCommand)
-              continue
-              ;;
-          esac
-
-          value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
-
-          if [ "$value" != "null" ] && [ -n "$value" ]; then
-            PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
+    name: Execute ${{ inputs.action }} Operation
+    runs-on: ubuntu-latest
+    needs: [validate, prepare]
+    if: |
+      needs.validate.outputs.validation_status == 'success' &&
+      inputs.dry_run == false
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-ecs-taskdef-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      ############################################################################
+      # CREATE STACK
+      ############################################################################
+      - name: Create CloudFormation Stack
+        if: inputs.action == 'create'
+        id: create-stack
+        run: |
+          echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
+          
+          # Read and process parameters
+          PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
+          
+          # Build parameter overrides
+          PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
+          
+          while IFS= read -r key; do
+            value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
+            if [ "$value" != "null" ] && [ -n "$value" ]; then
+              # Escape special characters for CLI
+              if echo "$value" | jq -e 'type' | grep -qE 'array|object'; then
+                value=$(echo "$value" | jq -c . | sed 's/"/\\"/g')
+              fi
+              PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
+            fi
+          done < <(echo "$PARAMS" | jq -r 'keys[]')
+          
+          # Execute create-stack
+          aws cloudformation create-stack \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --template-body file://${{ inputs.cloudformation_template_path }} \
+            --parameters ${PARAM_OVERRIDES} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --tags \
+              Key=Environment,Value=${{ inputs.environment }} \
+              Key=ManagedBy,Value=GitHubActions \
+              Key=Repository,Value=${{ github.repository }} \
+              Key=Workflow,Value=${{ github.workflow }} \
+              Key=RunId,Value=${{ github.run_id }} \
+            --region "${{ env.AWS_REGION }}"
+          
+          echo "Stack creation initiated"
+          echo "::endgroup::"
+      
+      - name: Wait for Stack Creation
+        if: inputs.action == 'create'
+        run: |
+          echo "Waiting for stack creation to complete..."
+          aws cloudformation wait stack-create-complete \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+          echo "✅ Stack created successfully"
+      
+      ############################################################################
+      # UPDATE STACK
+      ############################################################################
+      - name: Update CloudFormation Stack
+        if: inputs.action == 'update'
+        id: update-stack
+        run: |
+          echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
+          
+          # Read and process parameters
+          PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
+          
+          # Build parameter overrides
+          PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
+          
+          while IFS= read -r key; do
+            value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
+            if [ "$value" != "null" ] && [ -n "$value" ]; then
+              if echo "$value" | jq -e 'type' | grep -qE 'array|object'; then
+                value=$(echo "$value" | jq -c . | sed 's/"/\\"/g')
+              fi
+              PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
+            fi
+          done < <(echo "$PARAMS" | jq -r 'keys[]')
+          
+          # Execute update-stack
+          UPDATE_OUTPUT=$(aws cloudformation update-stack \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --template-body file://${{ inputs.cloudformation_template_path }} \
+            --parameters ${PARAM_OVERRIDES} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --region "${{ env.AWS_REGION }}" 2>&1) || {
+              if echo "$UPDATE_OUTPUT" | grep -q "No updates are to be performed"; then
+                echo "⚠️  No updates needed - stack is already up to date"
+                echo "no_changes=true" >> $GITHUB_OUTPUT
+                exit 0
+              else
+                echo "::error::Update failed: $UPDATE_OUTPUT"
+                exit 1
+              fi
+            }
+          
+          echo "Stack update initiated"
+          echo "no_changes=false" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+      
+      - name: Wait for Stack Update
+        if: inputs.action == 'update' && steps.update-stack.outputs.no_changes != 'true'
+        run: |
+          echo "Waiting for stack update to complete..."
+          aws cloudformation wait stack-update-complete \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+          echo "✅ Stack updated successfully"
+      
+      ############################################################################
+      # DELETE STACK
+      ############################################################################
+      - name: Delete CloudFormation Stack
+        if: inputs.action == 'delete'
+        run: |
+          echo "::group::Deleting Stack: ${{ env.STACK_NAME }}"
+          
+          # Confirm deletion in production
+          if [ "${{ inputs.environment }}" == "prod" ]; then
+            echo "⚠️  PRODUCTION STACK DELETION REQUESTED"
+            echo "Stack: ${{ env.STACK_NAME }}"
+            echo "Region: ${{ env.AWS_REGION }}"
           fi
-
-        done < <(echo "$PARAMS" | jq -r 'keys[]')
-
-        aws cloudformation create-stack \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --template-body file://${{ inputs.cloudformation_template_path }} \
-          --parameters ${PARAM_OVERRIDES} \
-          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-          --region "${{ env.AWS_REGION }}"
-
-        echo "::endgroup::"
-
-    - name: Wait for Stack Creation
-      if: inputs.action == 'create'
-      run: |
-        aws cloudformation wait stack-create-complete \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --region "${{ env.AWS_REGION }}"
-        echo "✅ Stack created successfully"
-
-    ############################################################################
-    # UPDATE STACK
-    ############################################################################
-    - name: Update CloudFormation Stack
-      if: inputs.action == 'update'
-      run: |
-        echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
-
-        PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
-
-        PARAM_OVERRIDES="Family=${{ inputs.task_family }} Environment=${{ inputs.environment }}"
-
-        while IFS= read -r key; do
-
-          # 🚫 Skip complex parameters
-          case "$key" in
-            EnvironmentVariables|Secrets|HealthCheckCommand)
-              continue
-              ;;
-          esac
-
-          value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
-
-          if [ "$value" != "null" ] && [ -n "$value" ]; then
-            PARAM_OVERRIDES="${PARAM_OVERRIDES} ${key}=\"${value}\""
-          fi
-
-        done < <(echo "$PARAMS" | jq -r 'keys[]')
-
-        aws cloudformation update-stack \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --template-body file://${{ inputs.cloudformation_template_path }} \
-          --parameters ${PARAM_OVERRIDES} \
-          --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-          --region "${{ env.AWS_REGION }}" || echo "No updates to perform"
-
-        echo "::endgroup::"
-
-    - name: Wait for Stack Update
-      if: inputs.action == 'update'
-      run: |
-        aws cloudformation wait stack-update-complete \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --region "${{ env.AWS_REGION }}"
-        echo "✅ Stack updated successfully"
-
-    ############################################################################
-    # DELETE STACK
-    ############################################################################
-    - name: Delete CloudFormation Stack
-      if: inputs.action == 'delete'
-      run: |
-        echo "::group::Deleting Stack: ${{ env.STACK_NAME }}"
-
-        aws cloudformation delete-stack \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --region "${{ env.AWS_REGION }}"
-
-        aws cloudformation wait stack-delete-complete \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --region "${{ env.AWS_REGION }}"
-
-        echo "✅ Stack deleted successfully"
-        echo "::endgroup::"
-
-    ############################################################################
-    # GET STACK OUTPUTS
-    ############################################################################
-    - name: Get Stack Outputs
-      if: inputs.action != 'delete'
-      run: |
-        aws cloudformation describe-stacks \
-          --stack-name "${{ env.STACK_NAME }}" \
-          --region "${{ env.AWS_REGION }}" \
-          --query 'Stacks[0].Outputs' \
-          --output table
-
-  
+          
+          aws cloudformation delete-stack \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+          
+          echo "Stack deletion initiated"
+          echo "::endgroup::"
+      
+      - name: Wait for Stack Deletion
+        if: inputs.action == 'delete'
+        run: |
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+          echo "✅ Stack deleted successfully"
+      
+      ############################################################################
+      # GET STACK OUTPUTS
+      ############################################################################
+      - name: Get Stack Outputs
+        if: inputs.action != 'delete'
+        id: stack-outputs
+        run: |
+          echo "::group::Stack Outputs"
+          aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query 'Stacks[0].Outputs' \
+            --output table
+          echo "::endgroup::"
+          
+          # Export task definition ARN
+          TASK_DEF_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionArn`].OutputValue' \
+            --output text)
+          
+          echo "task_definition_arn=${TASK_DEF_ARN}" >> $GITHUB_OUTPUT
+          echo "TASK_DEFINITION_ARN=${TASK_DEF_ARN}" >> $GITHUB_ENV
   ################################################################################
   # Job 4: Summary and Notification
   ################################################################################
