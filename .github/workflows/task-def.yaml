@@ -332,9 +332,50 @@ jobs:
         if: inputs.action == 'create'
         run: |
           echo "Waiting for stack creation to complete..."
-          aws cloudformation wait stack-create-complete \
+          
+          # Wait for stack creation with error handling
+          if ! aws cloudformation wait stack-create-complete \
             --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"
+            --region "${{ env.AWS_REGION }}"; then
+            
+            echo "::error::Stack creation failed!"
+            echo ""
+            echo "============================================"
+            echo "STACK FAILURE DETAILS"
+            echo "============================================"
+            
+            # Get stack status
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --query 'Stacks[0].StackStatus' \
+              --output text 2>/dev/null || echo "UNKNOWN")
+            
+            echo "Stack Status: $STACK_STATUS"
+            echo ""
+            
+            # Get the actual failure events
+            echo "FAILURE EVENTS:"
+            echo "============================================"
+            aws cloudformation describe-stack-events \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+              --output table
+            
+            echo ""
+            echo "ALL RECENT EVENTS:"
+            echo "============================================"
+            aws cloudformation describe-stack-events \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --max-items 20 \
+              --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+              --output table
+            
+            exit 1
+          fi
+          
           echo "✅ Stack created successfully"
       
       ############################################################################
@@ -392,9 +433,50 @@ jobs:
         if: inputs.action == 'update' && steps.update-stack.outputs.no_changes != 'true'
         run: |
           echo "Waiting for stack update to complete..."
-          aws cloudformation wait stack-update-complete \
+          
+          # Wait for stack update with error handling
+          if ! aws cloudformation wait stack-update-complete \
             --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"
+            --region "${{ env.AWS_REGION }}"; then
+            
+            echo "::error::Stack update failed!"
+            echo ""
+            echo "============================================"
+            echo "STACK FAILURE DETAILS"
+            echo "============================================"
+            
+            # Get stack status
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --query 'Stacks[0].StackStatus' \
+              --output text 2>/dev/null || echo "UNKNOWN")
+            
+            echo "Stack Status: $STACK_STATUS"
+            echo ""
+            
+            # Get the actual failure events
+            echo "FAILURE EVENTS:"
+            echo "============================================"
+            aws cloudformation describe-stack-events \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --query 'StackEvents[?ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+              --output table
+            
+            echo ""
+            echo "ALL RECENT EVENTS:"
+            echo "============================================"
+            aws cloudformation describe-stack-events \
+              --stack-name "${{ env.STACK_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --max-items 20 \
+              --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+              --output table
+            
+            exit 1
+          fi
+          
           echo "✅ Stack updated successfully"
       
       ############################################################################
