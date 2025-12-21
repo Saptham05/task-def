@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Fully parametrized ECS Task Definition with multi-container & sidecar support
+Description: >
+  Fully parametrized ECS Task Definition.
+  Supports Fargate/EC2, env vars, secrets, health checks,
+  runtime platform, ephemeral storage, logging, and IAM roles.
 
 ################################################################################
 # PARAMETERS
@@ -7,9 +10,13 @@ Description: Fully parametrized ECS Task Definition with multi-container & sidec
 Parameters:
   Family:
     Type: String
+    MinLength: 1
+    MaxLength: 255
 
   Environment:
     Type: String
+    MinLength: 1
+    MaxLength: 50
 
   TaskCpu:
     Type: String
@@ -21,11 +28,12 @@ Parameters:
 
   RequiresCompatibilities:
     Type: String
-    Default: FARGATE
+    Default: 'FARGATE'
 
   NetworkMode:
     Type: String
     Default: awsvpc
+    AllowedValues: [awsvpc, bridge, host, none]
 
   TaskRoleArn:
     Type: String
@@ -35,10 +43,88 @@ Parameters:
     Type: String
     Default: ''
 
-  Containers:
+  ContainerName:
     Type: String
-    Description: JSON array of ECS containerDefinitions
+    Default: app
+
+  ContainerImage:
+    Type: String
+
+  ContainerCpu:
+    Type: Number
+    Default: 0
+
+  ContainerMemory:
+    Type: Number
+    Default: 512
+
+  ContainerMemoryReservation:
+    Type: Number
+    Default: 0
+
+  Essential:
+    Type: String
+    Default: 'true'
+
+  ContainerPort:
+    Type: Number
+    Default: 80
+
+  HostPort:
+    Type: Number
+    Default: 80
+
+  Protocol:
+    Type: String
+    Default: tcp
+
+  EnvironmentVariables:
+    Type: String
     Default: '[]'
+
+  Secrets:
+    Type: String
+    Default: '[]'
+
+  LogDriver:
+    Type: String
+    Default: awslogs
+
+  LogGroupName:
+    Type: String
+    Default: ''
+
+  LogStreamPrefix:
+    Type: String
+    Default: ecs
+
+  HealthCheckCommand:
+    Type: String
+    Default: ''
+
+  HealthCheckInterval:
+    Type: Number
+    Default: 30
+
+  HealthCheckTimeout:
+    Type: Number
+    Default: 5
+
+  HealthCheckRetries:
+    Type: Number
+    Default: 3
+
+  HealthCheckStartPeriod:
+    Type: Number
+    Default: 60
+
+  Privileged:
+    Type: String
+    Default: 'false'
+
+  ReadonlyRootFilesystem:
+    Type: String
+    Default: 'false'
 
   RuntimePlatformCpuArchitecture:
     Type: String
@@ -58,8 +144,11 @@ Parameters:
 Conditions:
   HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
   HasExecutionRole: !Not [!Equals [!Ref ExecutionRoleArn, '']]
+  HasEnvVars: !Not [!Equals [!Ref EnvironmentVariables, '[]']]
+  HasSecrets: !Not [!Equals [!Ref Secrets, '[]']]
+  HasHealthCheck: !Not [!Equals [!Ref HealthCheckCommand, '']]
+  HasLogGroup: !Not [!Equals [!Ref LogGroupName, '']]
   HasEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 0]]
-  HasContainers: !Not [!Equals [!Ref Containers, '[]']]
 
 ################################################################################
 # RESOURCES
@@ -93,14 +182,60 @@ Resources:
         - SizeInGiB: !Ref EphemeralStorageSize
         - !Ref AWS::NoValue
 
-      ContainerDefinitions: !If
-        - HasContainers
-        - !FromJson !Ref Containers
-        - !Ref AWS::NoValue
+      ContainerDefinitions:
+        - Name: !Ref ContainerName
+          Image: !Ref ContainerImage
+          Cpu: !Ref ContainerCpu
+          Memory: !Ref ContainerMemory
+
+          MemoryReservation: !If
+            - HasEphemeralStorage
+            - !Ref ContainerMemoryReservation
+            - !Ref AWS::NoValue
+
+          Essential: !Equals [!Ref Essential, 'true']
+
+          Privileged: !Equals [!Ref Privileged, 'true']
+          ReadonlyRootFilesystem: !Equals [!Ref ReadonlyRootFilesystem, 'true']
+
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              HostPort: !Ref HostPort
+              Protocol: !Ref Protocol
+
+          Environment: !If
+            - HasEnvVars
+            - !FromJson !Ref EnvironmentVariables
+            - !Ref AWS::NoValue
+
+          Secrets: !If
+            - HasSecrets
+            - !FromJson !Ref Secrets
+            - !Ref AWS::NoValue
+
+          HealthCheck: !If
+            - HasHealthCheck
+            - Command: !FromJson !Ref HealthCheckCommand
+              Interval: !Ref HealthCheckInterval
+              Timeout: !Ref HealthCheckTimeout
+              Retries: !Ref HealthCheckRetries
+              StartPeriod: !Ref HealthCheckStartPeriod
+            - !Ref AWS::NoValue
+
+          LogConfiguration:
+            LogDriver: !Ref LogDriver
+            Options:
+              awslogs-group: !If
+                - HasLogGroup
+                - !Ref LogGroupName
+                - !Sub '/ecs/${Family}-${Environment}'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref LogStreamPrefix
 
 ################################################################################
 # OUTPUTS
 ################################################################################
 Outputs:
   TaskDefinitionArn:
+    Description: ECS Task Definition ARN
     Value: !Ref ECSTaskDefinition
