@@ -1,241 +1,643 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  Fully parametrized ECS Task Definition.
-  Supports Fargate/EC2, env vars, secrets, health checks,
-  runtime platform, ephemeral storage, logging, and IAM roles.
+Description: 'Comprehensive ECS Task Definition - Supports all ECS task definition components'
 
 ################################################################################
-# PARAMETERS
+# Parameters - All configurable aspects of the task definition
 ################################################################################
 Parameters:
+  # Basic Task Definition Parameters
   Family:
     Type: String
+    Description: 'Task definition family name'
     MinLength: 1
     MaxLength: 255
-
+  
   Environment:
     Type: String
+    Description: 'Environment name (e.g., dev, qa, staging, prod, or custom)'
     MinLength: 1
     MaxLength: 50
-
+  
+  # Compute Resources
   TaskCpu:
     Type: String
+    Description: 'Task-level CPU units (256, 512, 1024, 2048, 4096)'
     Default: '256'
-
+  
   TaskMemory:
     Type: String
+    Description: 'Task-level memory in MB (512, 1024, 2048, etc.)'
     Default: '512'
-
+  
+  # Launch Type & Network Mode
   RequiresCompatibilities:
     Type: String
+    Description: 'Launch type compatibility (FARGATE, EC2, or FARGATE,EC2)'
     Default: 'FARGATE'
-
+  
   NetworkMode:
     Type: String
-    Default: awsvpc
-    AllowedValues: [awsvpc, bridge, host, none]
-
+    Description: 'Docker networking mode'
+    Default: 'awsvpc'
+    AllowedValues:
+      - awsvpc
+      - bridge
+      - host
+      - none
+  
+  # IAM Roles
   TaskRoleArn:
     Type: String
+    Description: 'IAM role ARN for task (optional - allows containers to make AWS API calls)'
     Default: ''
-
+  
   ExecutionRoleArn:
     Type: String
+    Description: 'IAM role ARN for execution (required for Fargate - pulls images, writes logs)'
     Default: ''
-
+  
+  # Container Definition - Primary Container
   ContainerName:
     Type: String
-    Default: app
-
+    Description: 'Primary container name'
+    Default: 'app'
+  
   ContainerImage:
     Type: String
-
+    Description: 'Docker image URI (e.g., nginx:latest or ECR URI)'
+    MinLength: 1
+  
   ContainerCpu:
     Type: Number
+    Description: 'Container-level CPU units (optional - for resource allocation)'
     Default: 0
-
+  
   ContainerMemory:
     Type: Number
+    Description: 'Hard memory limit in MB for container'
     Default: 512
-
+  
   ContainerMemoryReservation:
     Type: Number
+    Description: 'Soft memory limit in MB (optional)'
     Default: 0
-
+  
   Essential:
     Type: String
+    Description: 'Is this container essential? (task stops if essential container fails)'
     Default: 'true'
-
+    AllowedValues:
+      - 'true'
+      - 'false'
+  
+  # Port Mappings
   ContainerPort:
     Type: Number
+    Description: 'Container port to expose'
     Default: 80
-
+    MinValue: 1
+    MaxValue: 65535
+  
   HostPort:
     Type: Number
+    Description: 'Host port (0 for dynamic, same as container for awsvpc)'
     Default: 80
-
+    MinValue: 0
+    MaxValue: 65535
+  
   Protocol:
     Type: String
-    Default: tcp
-
+    Description: 'Port protocol'
+    Default: 'tcp'
+    AllowedValues:
+      - tcp
+      - udp
+  
+  # Environment Variables (JSON string)
   EnvironmentVariables:
     Type: String
+    Description: 'JSON array of environment variables: [{"name":"KEY","value":"VALUE"}]'
     Default: '[]'
-
+  
+  # Secrets (JSON string for AWS Secrets Manager or SSM Parameter Store)
   Secrets:
     Type: String
+    Description: 'JSON array of secrets: [{"name":"DB_PASSWORD","valueFrom":"arn:aws:secretsmanager:..."}]'
     Default: '[]'
-
+  
+  # Logging Configuration
   LogDriver:
     Type: String
-    Default: awslogs
-
+    Description: 'Log driver type'
+    Default: 'awslogs'
+    AllowedValues:
+      - awslogs
+      - fluentd
+      - gelf
+      - json-file
+      - journald
+      - logentries
+      - splunk
+      - syslog
+      - awsfirelens
+  
   LogGroupName:
     Type: String
+    Description: 'CloudWatch Log Group name'
     Default: ''
-
+  
   LogStreamPrefix:
     Type: String
-    Default: ecs
-
+    Description: 'CloudWatch Log Stream prefix'
+    Default: 'ecs'
+  
+  LogRegion:
+    Type: String
+    Description: 'AWS region for logs (defaults to current region)'
+    Default: ''
+  
+  # Health Check
   HealthCheckCommand:
     Type: String
+    Description: 'JSON array for health check command: ["CMD-SHELL","curl -f http://localhost/ || exit 1"]'
     Default: ''
-
+  
   HealthCheckInterval:
     Type: Number
+    Description: 'Seconds between health checks'
     Default: 30
-
+    MinValue: 5
+    MaxValue: 300
+  
   HealthCheckTimeout:
     Type: Number
+    Description: 'Seconds to wait for health check'
     Default: 5
-
+    MinValue: 2
+    MaxValue: 60
+  
   HealthCheckRetries:
     Type: Number
+    Description: 'Number of retries before unhealthy'
     Default: 3
-
+    MinValue: 1
+    MaxValue: 10
+  
   HealthCheckStartPeriod:
     Type: Number
-    Default: 60
-
+    Description: 'Grace period before health checks start (seconds)'
+    Default: 0
+    MinValue: 0
+    MaxValue: 300
+  
+  # Working Directory and User
+  WorkingDirectory:
+    Type: String
+    Description: 'Working directory inside container'
+    Default: ''
+  
+  User:
+    Type: String
+    Description: 'User to run container as (UID or UID:GID)'
+    Default: ''
+  
+  # Entry Point and Command Override
+  EntryPoint:
+    Type: String
+    Description: 'JSON array for entry point override: ["sh","-c"]'
+    Default: ''
+  
+  Command:
+    Type: String
+    Description: 'JSON array for command override: ["echo","hello"]'
+    Default: ''
+  
+  # Volume Configuration
+  VolumeName:
+    Type: String
+    Description: 'EFS or Docker volume name (optional)'
+    Default: ''
+  
+  VolumeEFSFileSystemId:
+    Type: String
+    Description: 'EFS file system ID (optional)'
+    Default: ''
+  
+  VolumeEFSRootDirectory:
+    Type: String
+    Description: 'EFS root directory path'
+    Default: '/'
+  
+  MountPointSourceVolume:
+    Type: String
+    Description: 'Source volume name for mount point'
+    Default: ''
+  
+  MountPointContainerPath:
+    Type: String
+    Description: 'Container path to mount volume'
+    Default: ''
+  
+  MountPointReadOnly:
+    Type: String
+    Description: 'Mount as read-only?'
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+  
+  # Resource Limits (ulimits)
+  UlimitName:
+    Type: String
+    Description: 'Ulimit name (nofile, nproc, etc.)'
+    Default: ''
+  
+  UlimitSoftLimit:
+    Type: Number
+    Description: 'Soft ulimit'
+    Default: 0
+  
+  UlimitHardLimit:
+    Type: Number
+    Description: 'Hard ulimit'
+    Default: 0
+  
+  # Linux Parameters
+  LinuxSharedMemorySize:
+    Type: Number
+    Description: 'Shared memory size in MB'
+    Default: 0
+  
+  LinuxMaxSwap:
+    Type: Number
+    Description: 'Max swap in MB'
+    Default: 0
+  
+  LinuxSwappiness:
+    Type: Number
+    Description: 'Swappiness value (0-100)'
+    Default: 0
+    MinValue: 0
+    MaxValue: 100
+  
+  # Additional Container Properties
   Privileged:
     Type: String
+    Description: 'Run container in privileged mode?'
     Default: 'false'
-
+    AllowedValues:
+      - 'true'
+      - 'false'
+  
   ReadonlyRootFilesystem:
     Type: String
+    Description: 'Mount root filesystem as read-only?'
     Default: 'false'
-
+    AllowedValues:
+      - 'true'
+      - 'false'
+  
+  # PID and IPC Mode
+  PidMode:
+    Type: String
+    Description: 'PID namespace mode'
+    Default: ''
+    AllowedValues:
+      - ''
+      - host
+      - task
+  
+  IpcMode:
+    Type: String
+    Description: 'IPC namespace mode'
+    Default: ''
+    AllowedValues:
+      - ''
+      - host
+      - task
+      - none
+  
+  # Proxy Configuration
+  ProxyType:
+    Type: String
+    Description: 'Proxy configuration type'
+    Default: ''
+    AllowedValues:
+      - ''
+      - APPMESH
+  
+  ProxyContainerName:
+    Type: String
+    Description: 'Proxy container name'
+    Default: ''
+  
+  # EFS Volume Configuration Properties
+  EFSTransitEncryption:
+    Type: String
+    Description: 'Enable EFS transit encryption?'
+    Default: 'ENABLED'
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+  
+  EFSAccessPointId:
+    Type: String
+    Description: 'EFS Access Point ID (optional)'
+    Default: ''
+  
+  # Runtime Platform (for ARM/x86 architecture)
   RuntimePlatformCpuArchitecture:
     Type: String
-    Default: X86_64
-
+    Description: 'CPU architecture'
+    Default: 'X86_64'
+    AllowedValues:
+      - X86_64
+      - ARM64
+  
   RuntimePlatformOperatingSystemFamily:
     Type: String
-    Default: LINUX
-
+    Description: 'Operating system family'
+    Default: 'LINUX'
+    AllowedValues:
+      - LINUX
+      - WINDOWS_SERVER_2019_FULL
+      - WINDOWS_SERVER_2019_CORE
+      - WINDOWS_SERVER_2022_FULL
+      - WINDOWS_SERVER_2022_CORE
+  
+  # Ephemeral Storage (Fargate only)
   EphemeralStorageSize:
     Type: Number
-    Default: 0
+    Description: 'Ephemeral storage in GB (20-200 for Fargate)'
+    Default: 20
+    MinValue: 20
+    MaxValue: 200
+  
+  # Tags
+  ProjectTag:
+    Type: String
+    Description: 'Project name tag'
+    Default: ''
+  
+  CostCenterTag:
+    Type: String
+    Description: 'Cost center tag'
+    Default: ''
 
 ################################################################################
-# CONDITIONS
+# Conditions - Control which resources and properties are created
 ################################################################################
 Conditions:
+  # Role Conditions
   HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
   HasExecutionRole: !Not [!Equals [!Ref ExecutionRoleArn, '']]
-  HasEnvVars: !Not [!Equals [!Ref EnvironmentVariables, '[]']]
-  HasSecrets: !Not [!Equals [!Ref Secrets, '[]']]
+  
+  # Logging Conditions
+  HasLogGroupName: !Not [!Equals [!Ref LogGroupName, '']]
+  HasLogRegion: !Not [!Equals [!Ref LogRegion, '']]
+  
+  # Health Check Condition
   HasHealthCheck: !Not [!Equals [!Ref HealthCheckCommand, '']]
-  HasLogGroup: !Not [!Equals [!Ref LogGroupName, '']]
-  HasEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 0]]
+  
+  # Container Configuration Conditions
+  HasWorkingDirectory: !Not [!Equals [!Ref WorkingDirectory, '']]
+  HasUser: !Not [!Equals [!Ref User, '']]
+  HasEntryPoint: !Not [!Equals [!Ref EntryPoint, '']]
+  HasCommand: !Not [!Equals [!Ref Command, '']]
+  HasContainerCpu: !Not [!Equals [!Ref ContainerCpu, 0]]
+  HasMemoryReservation: !Not [!Equals [!Ref ContainerMemoryReservation, 0]]
+  
+  # Volume Conditions
+  HasVolume: !Not [!Equals [!Ref VolumeName, '']]
+  HasEFSVolume: !And
+    - !Not [!Equals [!Ref VolumeName, '']]
+    - !Not [!Equals [!Ref VolumeEFSFileSystemId, '']]
+  HasMountPoint: !Not [!Equals [!Ref MountPointSourceVolume, '']]
+  HasEFSAccessPoint: !Not [!Equals [!Ref EFSAccessPointId, '']]
+  
+  # Linux Parameters Conditions
+  HasSharedMemory: !Not [!Equals [!Ref LinuxSharedMemorySize, 0]]
+  HasMaxSwap: !Not [!Equals [!Ref LinuxMaxSwap, 0]]
+  HasSwappiness: !Not [!Equals [!Ref LinuxSwappiness, 0]]
+  HasLinuxParameters: !Or
+    - !Condition HasSharedMemory
+    - !Condition HasMaxSwap
+    - !Condition HasSwappiness
+  
+  # Ulimits Condition
+  HasUlimits: !Not [!Equals [!Ref UlimitName, '']]
+  
+  # PID/IPC Mode Conditions
+  HasPidMode: !Not [!Equals [!Ref PidMode, '']]
+  HasIpcMode: !Not [!Equals [!Ref IpcMode, '']]
+  
+  # Proxy Configuration Condition
+  HasProxyConfiguration: !Not [!Equals [!Ref ProxyType, '']]
+  
+  # Ephemeral Storage Condition (only for Fargate)
+  HasCustomEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 20]]
+  
+  # Tag Conditions
+  HasProjectTag: !Not [!Equals [!Ref ProjectTag, '']]
+  HasCostCenterTag: !Not [!Equals [!Ref CostCenterTag, '']]
+  HasTags: !Or
+    - !Condition HasProjectTag
+    - !Condition HasCostCenterTag
 
 ################################################################################
-# RESOURCES
+# Resources
 ################################################################################
 Resources:
+  # ECS Task Definition
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub '${Family}-${Environment}'
+      
+      # Compute Resources
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
+      
+      # Launch Type
+      RequiresCompatibilities: !Split [',', !Ref RequiresCompatibilities]
       NetworkMode: !Ref NetworkMode
-      RequiresCompatibilities: !Split [",", !Ref RequiresCompatibilities]
-
-      TaskRoleArn: !If
-        - HasTaskRole
-        - !Ref TaskRoleArn
-        - !Ref AWS::NoValue
-
-      ExecutionRoleArn: !If
-        - HasExecutionRole
-        - !Ref ExecutionRoleArn
-        - !Ref AWS::NoValue
-
+      
+      # IAM Roles
+      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref 'AWS::NoValue']
+      ExecutionRoleArn: !If [HasExecutionRole, !Ref ExecutionRoleArn, !Ref 'AWS::NoValue']
+      
+      # Runtime Platform
       RuntimePlatform:
         CpuArchitecture: !Ref RuntimePlatformCpuArchitecture
         OperatingSystemFamily: !Ref RuntimePlatformOperatingSystemFamily
-
+      
+      # Ephemeral Storage (Fargate only)
       EphemeralStorage: !If
-        - HasEphemeralStorage
+        - HasCustomEphemeralStorage
         - SizeInGiB: !Ref EphemeralStorageSize
-        - !Ref AWS::NoValue
-
+        - !Ref 'AWS::NoValue'
+      
+      # PID and IPC Mode
+      PidMode: !If [HasPidMode, !Ref PidMode, !Ref 'AWS::NoValue']
+      IpcMode: !If [HasIpcMode, !Ref IpcMode, !Ref 'AWS::NoValue']
+      
+      # Proxy Configuration
+      ProxyConfiguration: !If
+        - HasProxyConfiguration
+        - Type: !Ref ProxyType
+          ContainerName: !Ref ProxyContainerName
+        - !Ref 'AWS::NoValue'
+      
+      # Volumes
+      Volumes: !If
+        - HasEFSVolume
+        - - Name: !Ref VolumeName
+            EFSVolumeConfiguration:
+              FilesystemId: !Ref VolumeEFSFileSystemId
+              RootDirectory: !Ref VolumeEFSRootDirectory
+              TransitEncryption: !Ref EFSTransitEncryption
+              AuthorizationConfig: !If
+                - HasEFSAccessPoint
+                - AccessPointId: !Ref EFSAccessPointId
+                - !Ref 'AWS::NoValue'
+        - !If
+          - HasVolume
+          - - Name: !Ref VolumeName
+          - !Ref 'AWS::NoValue'
+      
+      # Container Definitions
       ContainerDefinitions:
+        # Primary Container
         - Name: !Ref ContainerName
           Image: !Ref ContainerImage
-          Cpu: !Ref ContainerCpu
+          
+          # CPU and Memory
+          Cpu: !If [HasContainerCpu, !Ref ContainerCpu, !Ref 'AWS::NoValue']
           Memory: !Ref ContainerMemory
-
-          MemoryReservation: !If
-            - HasEphemeralStorage
-            - !Ref ContainerMemoryReservation
-            - !Ref AWS::NoValue
-
-          Essential: !Equals [!Ref Essential, 'true']
-
-          Privileged: !Equals [!Ref Privileged, 'true']
-          ReadonlyRootFilesystem: !Equals [!Ref ReadonlyRootFilesystem, 'true']
-
+          MemoryReservation: !If [HasMemoryReservation, !Ref ContainerMemoryReservation, !Ref 'AWS::NoValue']
+          
+          # Essential
+          Essential: !Ref Essential
+          
+          # Port Mappings
           PortMappings:
             - ContainerPort: !Ref ContainerPort
               HostPort: !Ref HostPort
               Protocol: !Ref Protocol
-
-          Environment: !If
-            - HasEnvVars
-            - !FromJson !Ref EnvironmentVariables
-            - !Ref AWS::NoValue
-
-          Secrets: !If
-            - HasSecrets
-            - !FromJson !Ref Secrets
-            - !Ref AWS::NoValue
-
-          HealthCheck: !If
-            - HasHealthCheck
-            - Command: !FromJson !Ref HealthCheckCommand
-              Interval: !Ref HealthCheckInterval
-              Timeout: !Ref HealthCheckTimeout
-              Retries: !Ref HealthCheckRetries
-              StartPeriod: !Ref HealthCheckStartPeriod
-            - !Ref AWS::NoValue
-
+          
+          # Environment Variables (will be replaced with parsed JSON by GitHub Actions)
+          Environment: !Ref 'AWS::NoValue'
+          
+          # Secrets (will be replaced with parsed JSON by GitHub Actions)
+          Secrets: !Ref 'AWS::NoValue'
+          
+          # Logging
           LogConfiguration:
             LogDriver: !Ref LogDriver
             Options:
               awslogs-group: !If
-                - HasLogGroup
+                - HasLogGroupName
                 - !Ref LogGroupName
                 - !Sub '/ecs/${Family}-${Environment}'
-              awslogs-region: !Ref AWS::Region
+              awslogs-region: !If
+                - HasLogRegion
+                - !Ref LogRegion
+                - !Ref 'AWS::Region'
               awslogs-stream-prefix: !Ref LogStreamPrefix
+          
+          # Health Check
+          HealthCheck: !If
+            - HasHealthCheck
+            - Command: !Ref HealthCheckCommand
+              Interval: !Ref HealthCheckInterval
+              Timeout: !Ref HealthCheckTimeout
+              Retries: !Ref HealthCheckRetries
+              StartPeriod: !Ref HealthCheckStartPeriod
+            - !Ref 'AWS::NoValue'
+          
+          # Working Directory and User
+          WorkingDirectory: !If [HasWorkingDirectory, !Ref WorkingDirectory, !Ref 'AWS::NoValue']
+          User: !If [HasUser, !Ref User, !Ref 'AWS::NoValue']
+          
+          # Entry Point and Command
+          EntryPoint: !If [HasEntryPoint, !Ref EntryPoint, !Ref 'AWS::NoValue']
+          Command: !If [HasCommand, !Ref Command, !Ref 'AWS::NoValue']
+          
+          # Mount Points
+          MountPoints: !If
+            - HasMountPoint
+            - - SourceVolume: !Ref MountPointSourceVolume
+                ContainerPath: !Ref MountPointContainerPath
+                ReadOnly: !Ref MountPointReadOnly
+            - !Ref 'AWS::NoValue'
+          
+          # Ulimits
+          Ulimits: !If
+            - HasUlimits
+            - - Name: !Ref UlimitName
+                SoftLimit: !Ref UlimitSoftLimit
+                HardLimit: !Ref UlimitHardLimit
+            - !Ref 'AWS::NoValue'
+          
+          # Linux Parameters
+          LinuxParameters: !If
+            - HasLinuxParameters
+            - SharedMemorySize: !If [HasSharedMemory, !Ref LinuxSharedMemorySize, !Ref 'AWS::NoValue']
+              MaxSwap: !If [HasMaxSwap, !Ref LinuxMaxSwap, !Ref 'AWS::NoValue']
+              Swappiness: !If [HasSwappiness, !Ref LinuxSwappiness, !Ref 'AWS::NoValue']
+            - !Ref 'AWS::NoValue'
+          
+          # Security Settings
+          Privileged: !Ref Privileged
+          ReadonlyRootFilesystem: !Ref ReadonlyRootFilesystem
+      
+      # Tags
+      Tags: !If
+        - HasTags
+        - - !If
+            - HasProjectTag
+            - Key: Project
+              Value: !Ref ProjectTag
+            - !Ref 'AWS::NoValue'
+          - !If
+            - HasCostCenterTag
+            - Key: CostCenter
+              Value: !Ref CostCenterTag
+            - !Ref 'AWS::NoValue'
+          - Key: Environment
+            Value: !Ref Environment
+          - Key: ManagedBy
+            Value: CloudFormation
+        - - Key: Environment
+            Value: !Ref Environment
+          - Key: ManagedBy
+            Value: CloudFormation
 
 ################################################################################
-# OUTPUTS
+# Outputs
 ################################################################################
 Outputs:
   TaskDefinitionArn:
-    Description: ECS Task Definition ARN
+    Description: 'ARN of the ECS Task Definition'
     Value: !Ref ECSTaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinitionArn'
+  
+  TaskDefinitionFamily:
+    Description: 'Family name of the task definition'
+    Value: !Sub '${Family}-${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-Family'
+  
+  TaskDefinitionRevision:
+    Description: 'Revision number of the task definition'
+    Value: !Select [6, !Split [':', !Ref ECSTaskDefinition]]
+    Export:
+      Name: !Sub '${AWS::StackName}-Revision'
+  
+  StackName:
+    Description: 'CloudFormation Stack Name'
+    Value: !Ref 'AWS::StackName'
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+
