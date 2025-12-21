@@ -221,43 +221,27 @@ jobs:
         run: |
           echo "::group::Processing Parameters"
           
-          # Read the parameter file
+          # Read the parameter file (CloudFormation array format)
           PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
           
-          # Extract and validate required parameters
-          CONTAINER_IMAGE=$(echo "$PARAMS" | jq -r '.ContainerImage // empty')
+          # Validate it's an array
+          if ! echo "$PARAMS" | jq -e 'type == "array"' > /dev/null; then
+            echo "::error::Parameter file must be a JSON array in CloudFormation format"
+            exit 1
+          fi
+          
+          # Extract and validate ContainerImage exists
+          CONTAINER_IMAGE=$(echo "$PARAMS" | jq -r '.[] | select(.ParameterKey == "ContainerImage") | .ParameterValue // empty')
           if [ -z "$CONTAINER_IMAGE" ]; then
             echo "::error::ContainerImage is required in parameter file"
             exit 1
           fi
           
-          # Build CloudFormation parameters array
-          CF_PARAMS=""
+          echo "✅ Parameter file validated"
+          echo "Container Image: $CONTAINER_IMAGE"
+          echo "Total Parameters: $(echo "$PARAMS" | jq 'length')"
           
-          # Add all parameters from the JSON file
-          while IFS= read -r key; do
-            value=$(echo "$PARAMS" | jq -r --arg k "$key" '.[$k]')
-            
-            # Handle different value types
-            if [ "$value" != "null" ] && [ -n "$value" ]; then
-              # For arrays and objects, convert to JSON string
-              if echo "$value" | jq -e . >/dev/null 2>&1; then
-                # It's valid JSON, check if it's array or object
-                if echo "$value" | jq -e 'type' | grep -qE 'array|object'; then
-                  value=$(echo "$value" | jq -c .)
-                fi
-              fi
-              
-              # Add to CloudFormation parameters
-              CF_PARAMS="${CF_PARAMS} ParameterKey=${key},ParameterValue=\"${value}\""
-            fi
-          done < <(echo "$PARAMS" | jq -r 'keys[]')
-          
-          # Add required parameters from workflow inputs
-          CF_PARAMS="${CF_PARAMS} ParameterKey=Family,ParameterValue=${{ inputs.task_family }}"
-          CF_PARAMS="${CF_PARAMS} ParameterKey=Environment,ParameterValue=${{ inputs.environment }}"
-          
-          echo "parameters=${CF_PARAMS}" >> $GITHUB_OUTPUT
+          echo "parameters=validated" >> $GITHUB_OUTPUT
           echo "::endgroup::"
           
           echo "::group::CloudFormation Parameters Preview"
