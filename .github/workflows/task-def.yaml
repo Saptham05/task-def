@@ -1,622 +1,452 @@
-name: ECS Task Definition Management
-
-################################################################################
-# This workflow manages ECS Task Definitions using CloudFormation
-# - Supports create, update, and delete operations
-# - Uses AWS OIDC for secure authentication
-# - Accepts task definition config from parameter file
-# - Production-ready with comprehensive validation and error handling
-################################################################################
-
+name: Deploy ECS Task Definition via CloudFormation
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: 'Action to perform'
+      # Basic Configuration
+      task_family:
+        description: 'Task Definition family name (e.g., feedback-service)'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
         required: true
         type: choice
-        options:
-          - create
-          - update
-          - delete
-        default: 'create'
+        options: [dev, qa, perf, staging, prod]
+      action:
+        description: 'Action'
+        required: true
+        type: choice
+        options: [validate, create, update]
+        default: validate
       
-      environment:
-        description: 'Target environment (e.g., dev, qa, staging, prod)'
+      # Task Level Configuration
+      task_cpu:
+        description: 'Task CPU units'
+        required: true
+        type: choice
+        options: ['256', '512', '1024', '2048', '4096']
+        default: '512'
+      task_memory:
+        description: 'Task Memory (MB)'
+        required: true
+        type: choice
+        options: ['512', '1024', '2048', '3072', '4096', '8192', '16384']
+        default: '1024'
+      requires_compatibilities:
+        description: 'Launch Type'
+        required: true
+        type: choice
+        options: ['FARGATE', 'EC2']
+        default: 'FARGATE'
+      
+      # Container Configuration
+      container_name:
+        description: 'Container name'
         required: true
         type: string
-        default: 'dev'
-      
-      task_family:
-        description: 'Task Definition family name (e.g., my-app)'
+        default: 'app'
+      container_image:
+        description: 'Container image URI (e.g., 123456.dkr.ecr.region.amazonaws.com/app:tag)'
         required: true
         type: string
-      
-      parameter_file_path:
-        description: 'Path to parameter file in repository (e.g., config/dev/task-params.json)'
+      container_memory:
+        description: 'Container memory (MB)'
         required: true
         type: string
-        default: 'parameters.json'
-      
-      aws_region:
-        description: 'AWS Region'
-        required: true
-        type: string
-        default: 'ap-south-1'
-      
-      cloudformation_template_path:
-        description: 'Path to CloudFormation template'
+        default: '1024'
+      container_cpu:
+        description: 'Container CPU units (0 = use task-level)'
         required: false
         type: string
-        default: 'task-CTF.yaml'
-      
-      dry_run:
-        description: 'Dry run mode (validation only, no deployment)'
+        default: '0'
+      container_port:
+        description: 'Container port'
+        required: true
+        type: string
+        default: '8080'
+      host_port:
+        description: 'Host port'
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: ''
+      essential:
+        description: 'Essential container'
+        required: true
+        type: choice
+        options: ['true', 'false']
+        default: 'true'
+      
+      # IAM Roles
+      execution_role_arn:
+        description: 'Execution Role ARN (required for Fargate)'
+        required: true
+        type: string
+      task_role_arn:
+        description: 'Task Role ARN (optional)'
+        required: false
+        type: string
+        default: ''
+      
+      # Logging
+      log_group_name:
+        description: 'CloudWatch log group (leave empty for auto-generated)'
+        required: false
+        type: string
+        default: ''
+      log_stream_prefix:
+        description: 'Log stream prefix'
+        required: false
+        type: string
+        default: 'ecs'
+      
+      # Environment Variables
+      env_vars:
+        description: 'Environment variables (KEY1=VALUE1,KEY2=VALUE2)'
+        required: false
+        type: string
+        default: ''
+      
+      # Health Check
+      health_check_command:
+        description: 'Health check command (CMD-SHELL,curl -f http://localhost:8080/health || exit 1)'
+        required: false
+        type: string
+        default: ''
+      health_check_interval:
+        description: 'Health check interval (seconds)'
+        required: false
+        type: string
+        default: '30'
+      health_check_timeout:
+        description: 'Health check timeout (seconds)'
+        required: false
+        type: string
+        default: '5'
+      health_check_retries:
+        description: 'Health check retries'
+        required: false
+        type: string
+        default: '3'
+      health_check_start_period:
+        description: 'Health check start period (seconds)'
+        required: false
+        type: string
+        default: '60'
+      
+      # Runtime Platform
+      runtime_cpu_architecture:
+        description: 'CPU Architecture'
+        required: false
+        type: choice
+        options: ['X86_64', 'ARM64']
+        default: 'X86_64'
+      runtime_os_family:
+        description: 'OS Family'
+        required: false
+        type: choice
+        options: ['LINUX', 'WINDOWS_SERVER_2019_FULL', 'WINDOWS_SERVER_2022_FULL']
+        default: 'LINUX'
+      
+      # Storage
+      ephemeral_storage_size:
+        description: 'Ephemeral storage (GiB)'
+        required: false
+        type: string
+        default: '20'
+      
+      # Tags
+      team:
+        description: 'Team name'
+        required: false
+        type: string
+        default: 'DevOps'
+      cost_center:
+        description: 'Cost Center'
+        required: false
+        type: string
+        default: ''
+      project:
+        description: 'Project name'
+        required: false
+        type: string
+        default: ''
 
-# Environment variables used across all jobs
+permissions:
+  id-token: write
+  contents: read
+
 env:
-  AWS_REGION: ${{ inputs.aws_region }}
-  STACK_NAME: ecs-taskdef-${{ inputs.task_family }}-${{ inputs.environment }}
-  PARAMETER_FILE: ${{ inputs.parameter_file_path }}
+  AWS_REGION: ap-south-1
+  TEMPLATE_FILE: task-CTF.yaml
 
 jobs:
-  ################################################################################
-  # Job 1: Validate Inputs and Configuration
-  ################################################################################
-  validate:
-    name: Validate Configuration
+  validate-inputs:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     outputs:
-      validation_status: ${{ steps.validate.outputs.status }}
-      stack_exists: ${{ steps.check-stack.outputs.exists }}
-    
+      stack_name: ${{ steps.naming.outputs.stack_name }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Validate Input Parameters
-        id: validate
+
+      - name: Build stack name
+        id: naming
         run: |
-          echo "::group::Input Validation"
-          echo "Action: ${{ inputs.action }}"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Task Family: ${{ inputs.task_family }}"
-          echo "Parameter File: ${{ env.PARAMETER_FILE }}"
-          echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo "Stack Name: ${{ env.STACK_NAME }}"
-          echo "Dry Run: ${{ inputs.dry_run }}"
-          echo "::endgroup::"
+          set -euo pipefail
+          STACK_NAME="taskdef-${{ inputs.task_family }}-${{ inputs.environment }}-stack"
+          echo "stack_name=$STACK_NAME" >> "$GITHUB_OUTPUT"
           
-          # Validate environment name format (alphanumeric, hyphens, underscores only)
-          if [[ ! "${{ inputs.environment }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "::error::Environment name must contain only alphanumeric characters, hyphens, and underscores"
-            exit 1
-          fi
-          
-          # Validate environment name length (CloudFormation stack name limits)
-          ENV_NAME="${{ inputs.environment }}"
-          ENV_LENGTH=${ENV_NAME}
-          if [ "$ENV_LENGTH" -gt 50 ]; then
-            echo "::error::Environment name must be 50 characters or less (current: $ENV_LENGTH)"
-            exit 1
-          fi
-          
-          # Validate task family name format
-          if [[ ! "${{ inputs.task_family }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "::error::Task family name must contain only alphanumeric characters, hyphens, and underscores"
-            exit 1
-          fi
-          
-          # Check if parameter file exists
-          if [ ! -f "${{ env.PARAMETER_FILE }}" ]; then
-            echo "::error::Parameter file not found: ${{ env.PARAMETER_FILE }}"
-            exit 1
-          fi
-          
-          # Validate JSON syntax of parameter file
-          if ! jq empty "${{ env.PARAMETER_FILE }}" 2>/dev/null; then
-            echo "::error::Parameter file is not valid JSON"
-            exit 1
-          fi
-          
-          # Check if CloudFormation template exists
-          if [ ! -f "${{ inputs.cloudformation_template_path }}" ]; then
-            echo "::error::CloudFormation template not found: ${{ inputs.cloudformation_template_path }}"
-            exit 1
-          fi
-          
-          echo "✅ All validations passed"
-          echo "status=success" >> $GITHUB_OUTPUT
-      
-      - name: Display Parameter File Content
-        run: |
-          echo "::group::Parameter File Content"
-          cat "${{ env.PARAMETER_FILE }}" | jq '.'
-          echo "::endgroup::"
-      
-      # Configure AWS credentials using OIDC
-      - name: Configure AWS Credentials (OIDC)
+          echo "### Inputs Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Task Family**: ${{ inputs.task_family }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment**: ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Action**: ${{ inputs.action }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Container Image**: ${{ inputs.container_image }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Task CPU**: ${{ inputs.task_cpu }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Task Memory**: ${{ inputs.task_memory }} MB" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Launch Type**: ${{ inputs.requires_compatibilities }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-${{ github.run_id }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Verify AWS Authentication
-        run: |
-          echo "::group::AWS Identity"
-          aws sts get-caller-identity
-          echo "::endgroup::"
-      
-      - name: Check if Stack Exists
-        id: check-stack
-        run: |
-          if aws cloudformation describe-stacks \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}" \
-            --output json > /dev/null 2>&1; then
-            echo "Stack exists"
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "Stack does not exist"
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Validate Action Against Stack State
-        run: |
-          STACK_EXISTS="${{ steps.check-stack.outputs.exists }}"
-          ACTION="${{ inputs.action }}"
-          
-          if [ "$ACTION" == "create" ] && [ "$STACK_EXISTS" == "true" ]; then
-            echo "::error::Cannot create stack - it already exists. Use 'update' action instead."
-            exit 1
-          fi
-          
-          if [ "$ACTION" == "update" ] && [ "$STACK_EXISTS" == "false" ]; then
-            echo "::error::Cannot update stack - it does not exist. Use 'create' action instead."
-            exit 1
-          fi
-          
-          if [ "$ACTION" == "delete" ] && [ "$STACK_EXISTS" == "false" ]; then
-            echo "::error::Cannot delete stack - it does not exist."
-            exit 1
-          fi
-          
-          echo "✅ Action '$ACTION' is valid for current stack state"
+          role-session-name: Validate-TaskDef-${{ inputs.task_family }}
 
-  ################################################################################
-  # Job 2: Process Parameters and Prepare CloudFormation
-  ################################################################################
-  prepare:
-    name: Prepare CloudFormation Parameters
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    needs: validate
-    if: needs.validate.outputs.validation_status == 'success'
-    outputs:
-      cf_parameters: ${{ steps.prepare-params.outputs.parameters }}
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # Configure AWS credentials for this job
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-prepare-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Process Parameter File
-        id: prepare-params
+      - name: Validate CloudFormation template
         run: |
-          echo "::group::Processing Parameters"
-          
-          # Read the parameter file (CloudFormation array format)
-          PARAMS=$(cat "${{ env.PARAMETER_FILE }}")
-          
-          # Validate it's an array
-          if ! echo "$PARAMS" | jq -e 'type == "array"' > /dev/null; then
-            echo "::error::Parameter file must be a JSON array in CloudFormation format"
-            exit 1
-          fi
-          
-          # Extract and validate ContainerImage exists
-          CONTAINER_IMAGE=$(echo "$PARAMS" | jq -r '.[] | select(.ParameterKey == "ContainerImage") | .ParameterValue // empty')
-          if [ -z "$CONTAINER_IMAGE" ]; then
-            echo "::error::ContainerImage is required in parameter file"
-            exit 1
-          fi
-          
-          echo "✅ Parameter file validated"
-          echo "Container Image: $CONTAINER_IMAGE"
-          echo "Total Parameters: $(echo "$PARAMS" | jq 'length')"
-          
-          echo "parameters=validated" >> $GITHUB_OUTPUT
-          echo "::endgroup::"
-          
-          echo "::group::CloudFormation Parameters Preview"
-          echo "$CF_PARAMS" | tr ' ' '\n'
-          echo "::endgroup::"
-      
-      - name: Validate CloudFormation Template
-        run: |
-          echo "::group::Template Validation"
-          aws cloudformation validate-template \
-            --template-body file://${{ inputs.cloudformation_template_path }} \
-            --region "${{ env.AWS_REGION }}" || exit 1
-          echo "✅ Template validation successful"
-          echo "::endgroup::"
+          set -euo pipefail
+          aws cloudformation validate-template --template-body file://${{ env.TEMPLATE_FILE }}
+          echo "✅ SUCCESS: CloudFormation template is valid." >> "$GITHUB_STEP_SUMMARY"
 
-  ################################################################################
-  # Job 3: Execute CloudFormation Operation
-  ################################################################################
+      - name: Validate IAM Role
+        run: |
+          set -euo pipefail
+          ROLE_ARN="${{ inputs.execution_role_arn }}"
+          ROLE_NAME=$(echo "$ROLE_ARN" | awk -F'/' '{print $NF}')
+          
+          aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1 || {
+            echo "❌ ERROR: IAM role '$ROLE_NAME' not found."
+            exit 1
+          }
+          echo "✅ SUCCESS: IAM role '$ROLE_NAME' exists." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate CPU/Memory Combination
+        run: |
+          set -euo pipefail
+          CPU=${{ inputs.task_cpu }}
+          MEMORY=${{ inputs.task_memory }}
+          COMPAT="${{ inputs.requires_compatibilities }}"
+          
+          if [ "$COMPAT" = "FARGATE" ]; then
+            VALID=false
+            case "$CPU" in
+              256)
+                [[ "$MEMORY" =~ ^(512|1024|2048)$ ]] && VALID=true
+                ;;
+              512)
+                [[ "$MEMORY" =~ ^(1024|2048|3072|4096)$ ]] && VALID=true
+                ;;
+              1024)
+                [[ "$MEMORY" =~ ^(2048|3072|4096|5120|6144|7168|8192)$ ]] && VALID=true
+                ;;
+              2048)
+                [[ "$MEMORY" =~ ^(4096|5120|6144|7168|8192|9216|10240|11264|12288|13312|14336|15360|16384)$ ]] && VALID=true
+                ;;
+              4096)
+                [[ "$MEMORY" -ge 8192 ]] && [[ "$MEMORY" -le 30720 ]] && VALID=true
+                ;;
+            esac
+            
+            if [ "$VALID" = "false" ]; then
+              echo "❌ ERROR: Invalid CPU/Memory combination for Fargate"
+              echo "CPU: $CPU, Memory: $MEMORY"
+              echo "See: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html"
+              exit 1
+            fi
+            echo "✅ SUCCESS: CPU/Memory combination is valid for Fargate." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Validate Container Memory
+        run: |
+          set -euo pipefail
+          TASK_MEM=${{ inputs.task_memory }}
+          CONTAINER_MEM=${{ inputs.container_memory }}
+          
+          if [ "$CONTAINER_MEM" -gt "$TASK_MEM" ]; then
+            echo "❌ ERROR: Container memory ($CONTAINER_MEM) cannot exceed task memory ($TASK_MEM)"
+            exit 1
+          fi
+          echo "✅ SUCCESS: Container memory is within task memory limits." >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
-    name: Execute ${{ inputs.action }} Operation
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-    needs: [validate, prepare]
-    if: |
-      needs.validate.outputs.validation_status == 'success' &&
-      inputs.dry_run == false
-    
+    needs: validate-inputs
+    if: ${{ inputs.action == 'create' || inputs.action == 'update' }}
+    environment: ${{ inputs.environment }}
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      # Configure AWS credentials using OIDC
-      - name: Configure AWS Credentials (OIDC)
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-ecs-taskdef-deploy-${{ github.run_id }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
           aws-region: ${{ env.AWS_REGION }}
-      
-      ############################################################################
-      # CREATE STACK
-      ############################################################################
-      - name: Create CloudFormation Stack
-        if: inputs.action == 'create'
-        id: create-stack
+          role-session-name: Deploy-TaskDef-${{ inputs.task_family }}
+
+      - name: Create or Update CloudFormation Stack
         run: |
-          echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
+          set -euo pipefail
+          STACK="${{ needs.validate-inputs.outputs.stack_name }}"
           
-          # Read parameter file (CloudFormation format)
-          PARAM_FILE="${{ env.PARAMETER_FILE }}"
-          TEMP_FILE=$(mktemp)
+          # Check if stack exists
+          EXISTS="false"
+          aws cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1 && EXISTS="true"
           
-          # Simply add Family and Environment - keep all values as strings
-          jq --arg family "${{ inputs.task_family }}" \
-             --arg env "${{ inputs.environment }}" '
-          [
-            {"ParameterKey": "Family", "ParameterValue": $family},
-            {"ParameterKey": "Environment", "ParameterValue": $env}
-          ] + .
-          ' "$PARAM_FILE" > "$TEMP_FILE"
-          
-          # Display parameters for debugging
-          echo "CloudFormation Parameters:"
-          cat "$TEMP_FILE" | jq '.'
-          
-          # Execute create-stack
-          aws cloudformation create-stack \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --template-body "file://${{ inputs.cloudformation_template_path }}" \
-            --parameters "file://$TEMP_FILE" \
+          # Enforce create/update rules
+          if [ "${{ inputs.action }}" = "create" ]; then
+            if [ "$EXISTS" = "true" ]; then
+              echo "❌ ERROR: Stack '$STACK' already exists. Use 'update' action instead."
+              exit 1
+            fi
+            ACTION="create-stack"
+          else
+            if [ "$EXISTS" = "false" ]; then
+              echo "❌ ERROR: Stack '$STACK' does not exist. Use 'create' action instead."
+              exit 1
+            fi
+            ACTION="update-stack"
+          fi
+
+          # Set host port (default to container port if not specified)
+          HOST_PORT="${{ inputs.host_port }}"
+          if [ -z "$HOST_PORT" ]; then
+            HOST_PORT="${{ inputs.container_port }}"
+          fi
+
+          # Build parameter overrides from workflow inputs
+          PARAMS="Family=${{ inputs.task_family }}"
+          PARAMS="$PARAMS Environment=${{ inputs.environment }}"
+          PARAMS="$PARAMS TaskCpu=${{ inputs.task_cpu }}"
+          PARAMS="$PARAMS TaskMemory=${{ inputs.task_memory }}"
+          PARAMS="$PARAMS RequiresCompatibilities=${{ inputs.requires_compatibilities }}"
+          PARAMS="$PARAMS ContainerName=${{ inputs.container_name }}"
+          PARAMS="$PARAMS ContainerImage=${{ inputs.container_image }}"
+          PARAMS="$PARAMS ContainerMemory=${{ inputs.container_memory }}"
+          PARAMS="$PARAMS ContainerCpu=${{ inputs.container_cpu }}"
+          PARAMS="$PARAMS ContainerPort=${{ inputs.container_port }}"
+          PARAMS="$PARAMS HostPort=$HOST_PORT"
+          PARAMS="$PARAMS Essential=${{ inputs.essential }}"
+          PARAMS="$PARAMS ExecutionRoleArn=${{ inputs.execution_role_arn }}"
+          PARAMS="$PARAMS TaskRoleArn=${{ inputs.task_role_arn }}"
+          PARAMS="$PARAMS LogGroupName=${{ inputs.log_group_name }}"
+          PARAMS="$PARAMS LogStreamPrefix=${{ inputs.log_stream_prefix }}"
+          PARAMS="$PARAMS EnvironmentVariables=${{ inputs.env_vars }}"
+          PARAMS="$PARAMS HealthCheckCommand=${{ inputs.health_check_command }}"
+          PARAMS="$PARAMS HealthCheckInterval=${{ inputs.health_check_interval }}"
+          PARAMS="$PARAMS HealthCheckTimeout=${{ inputs.health_check_timeout }}"
+          PARAMS="$PARAMS HealthCheckRetries=${{ inputs.health_check_retries }}"
+          PARAMS="$PARAMS HealthCheckStartPeriod=${{ inputs.health_check_start_period }}"
+          PARAMS="$PARAMS RuntimePlatformCpuArchitecture=${{ inputs.runtime_cpu_architecture }}"
+          PARAMS="$PARAMS RuntimePlatformOperatingSystemFamily=${{ inputs.runtime_os_family }}"
+          PARAMS="$PARAMS EphemeralStorageSize=${{ inputs.ephemeral_storage_size }}"
+          PARAMS="$PARAMS Team=${{ inputs.team }}"
+          PARAMS="$PARAMS CostCenter=${{ inputs.cost_center }}"
+          PARAMS="$PARAMS Project=${{ inputs.project }}"
+
+          echo "### CloudFormation Parameters" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$PARAMS" | tr ' ' '\n' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # Execute CloudFormation operation
+          aws cloudformation "$ACTION" \
+            --stack-name "$STACK" \
+            --template-body file://${{ env.TEMPLATE_FILE }} \
+            --parameter-overrides $PARAMS \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --tags \
-              "Key=Environment,Value=${{ inputs.environment }}" \
-              "Key=ManagedBy,Value=GitHubActions" \
-              "Key=Repository,Value=${{ github.repository }}" \
-              "Key=Workflow,Value=${{ github.workflow }}" \
-              "Key=RunId,Value=${{ github.run_id }}" \
-            --region "${{ env.AWS_REGION }}"
-          
-          # Cleanup
-          rm -f "$TEMP_FILE"
-          
-          echo "Stack creation initiated"
-          echo "::endgroup::"
-      
-      - name: Wait for Stack Creation
-        if: inputs.action == 'create'
+              Key=Family,Value=${{ inputs.task_family }} \
+              Key=Environment,Value=${{ inputs.environment }} \
+              Key=ManagedBy,Value=GitHubActions \
+              Key=Repository,Value=${{ github.repository }}
+
+      - name: Wait for Stack
         run: |
-          echo "Waiting for stack creation to complete..."
+          set -euo pipefail
+          STACK="${{ needs.validate-inputs.outputs.stack_name }}"
           
-          # Wait for stack creation with error handling
-          if ! aws cloudformation wait stack-create-complete \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"; then
+          if [ "${{ inputs.action }}" = "create" ]; then
+            echo "⏳ Waiting for stack creation..."
+            aws cloudformation wait stack-create-complete --stack-name "$STACK" || {
+              echo "❌ ERROR: Stack creation failed!"
+              aws cloudformation describe-stack-events \
+                --stack-name "$STACK" \
+                --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+                --output table
+              exit 1
+            }
+          else
+            echo "⏳ Waiting for stack update..."
+            set +e
+            aws cloudformation wait stack-update-complete --stack-name "$STACK"
+            EXIT=$?
+            set -e
             
-            echo "::error::Stack creation failed!"
-            echo ""
-            echo "============================================"
-            echo "STACK FAILURE DETAILS"
-            echo "============================================"
-            
-            # Get stack status
-            STACK_STATUS=$(aws cloudformation describe-stacks \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --query 'Stacks[0].StackStatus' \
-              --output text 2>/dev/null || echo "UNKNOWN")
-            
-            echo "Stack Status: $STACK_STATUS"
-            echo ""
-            
-            # Get the actual failure events
-            echo "FAILURE EVENTS:"
-            echo "============================================"
-            aws cloudformation describe-stack-events \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
-              --output table
-            
-            echo ""
-            echo "ALL RECENT EVENTS:"
-            echo "============================================"
-            aws cloudformation describe-stack-events \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --max-items 20 \
-              --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
-              --output table
-            
-            exit 1
-          fi
-          
-          echo "✅ Stack created successfully"
-      
-      ############################################################################
-      # UPDATE STACK
-      ############################################################################
-      - name: Update CloudFormation Stack
-        if: inputs.action == 'update'
-        id: update-stack
-        run: |
-          echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
-          
-          # Read parameter file (CloudFormation format)
-          PARAM_FILE="${{ env.PARAMETER_FILE }}"
-          TEMP_FILE=$(mktemp)
-          
-          # Simply add Family and Environment - keep all values as strings
-          jq --arg family "${{ inputs.task_family }}" \
-             --arg env "${{ inputs.environment }}" '
-          [
-            {"ParameterKey": "Family", "ParameterValue": $family},
-            {"ParameterKey": "Environment", "ParameterValue": $env}
-          ] + .
-          ' "$PARAM_FILE" > "$TEMP_FILE"
-          
-          # Display parameters for debugging
-          echo "CloudFormation Parameters:"
-          cat "$TEMP_FILE" | jq '.'
-          
-          # Execute update-stack
-          UPDATE_OUTPUT=$(aws cloudformation update-stack \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --template-body "file://${{ inputs.cloudformation_template_path }}" \
-            --parameters "file://$TEMP_FILE" \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --region "${{ env.AWS_REGION }}" 2>&1) || {
-              if echo "$UPDATE_OUTPUT" | grep -q "No updates are to be performed"; then
-                echo "⚠️  No updates needed - stack is already up to date"
-                echo "no_changes=true" >> $GITHUB_OUTPUT
-                rm -f "$TEMP_FILE"
-                exit 0
+            if [ "$EXIT" -ne 0 ]; then
+              STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].StackStatus' --output text)
+              if [[ "$STATUS" == "UPDATE_COMPLETE" || "$STATUS" == "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS" ]]; then
+                echo "✅ Update completed successfully."
               else
-                echo "::error::Update failed: $UPDATE_OUTPUT"
-                rm -f "$TEMP_FILE"
+                echo "❌ ERROR: Update failed with status: $STATUS"
+                aws cloudformation describe-stack-events \
+                  --stack-name "$STACK" \
+                  --query 'StackEvents[?ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+                  --output table
                 exit 1
               fi
-            }
-          
-          # Cleanup
-          rm -f "$TEMP_FILE"
-          
-          echo "Stack update initiated"
-          echo "no_changes=false" >> $GITHUB_OUTPUT
-          echo "::endgroup::"
-      
-      - name: Wait for Stack Update
-        if: inputs.action == 'update' && steps.update-stack.outputs.no_changes != 'true'
-        run: |
-          echo "Waiting for stack update to complete..."
-          
-          # Wait for stack update with error handling
-          if ! aws cloudformation wait stack-update-complete \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"; then
-            
-            echo "::error::Stack update failed!"
-            echo ""
-            echo "============================================"
-            echo "STACK FAILURE DETAILS"
-            echo "============================================"
-            
-            # Get stack status
-            STACK_STATUS=$(aws cloudformation describe-stacks \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --query 'Stacks[0].StackStatus' \
-              --output text 2>/dev/null || echo "UNKNOWN")
-            
-            echo "Stack Status: $STACK_STATUS"
-            echo ""
-            
-            # Get the actual failure events
-            echo "FAILURE EVENTS:"
-            echo "============================================"
-            aws cloudformation describe-stack-events \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --query 'StackEvents[?ResourceStatus==`UPDATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
-              --output table
-            
-            echo ""
-            echo "ALL RECENT EVENTS:"
-            echo "============================================"
-            aws cloudformation describe-stack-events \
-              --stack-name "${{ env.STACK_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
-              --max-items 20 \
-              --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
-              --output table
-            
-            exit 1
+            fi
           fi
-          
-          echo "✅ Stack updated successfully"
-      
-      ############################################################################
-      # DELETE STACK
-      ############################################################################
-      - name: Delete CloudFormation Stack
-        if: inputs.action == 'delete'
+          echo "✅ SUCCESS: Stack operation completed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Get Task Definition Details
         run: |
-          echo "::group::Deleting Stack: ${{ env.STACK_NAME }}"
+          set -euo pipefail
+          STACK="${{ needs.validate-inputs.outputs.stack_name }}"
           
-          # Confirm deletion in production
-          if [ "${{ inputs.environment }}" == "prod" ]; then
-            echo "⚠️  PRODUCTION STACK DELETION REQUESTED"
-            echo "Stack: ${{ env.STACK_NAME }}"
-            echo "Region: ${{ env.AWS_REGION }}"
-          fi
-          
-          aws cloudformation delete-stack \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"
-          
-          echo "Stack deletion initiated"
-          echo "::endgroup::"
-      
-      - name: Wait for Stack Deletion
-        if: inputs.action == 'delete'
-        run: |
-          echo "Waiting for stack deletion to complete..."
-          aws cloudformation wait stack-delete-complete \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}"
-          echo "✅ Stack deleted successfully"
-      
-      ############################################################################
-      # GET STACK OUTPUTS
-      ############################################################################
-      - name: Get Stack Outputs
-        if: inputs.action != 'delete'
-        id: stack-outputs
-        run: |
-          echo "::group::Stack Outputs"
-          aws cloudformation describe-stacks \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}" \
-            --query 'Stacks[0].Outputs' \
-            --output table
-          echo "::endgroup::"
-          
-          # Export task definition ARN
-          TASK_DEF_ARN=$(aws cloudformation describe-stacks \
-            --stack-name "${{ env.STACK_NAME }}" \
-            --region "${{ env.AWS_REGION }}" \
+          # Get outputs
+          TASKDEF_ARN=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK" \
             --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionArn`].OutputValue' \
             --output text)
           
-          echo "task_definition_arn=${TASK_DEF_ARN}" >> $GITHUB_OUTPUT
-          echo "TASK_DEFINITION_ARN=${TASK_DEF_ARN}" >> $GITHUB_ENV
-
-  ################################################################################
-  # Job 4: Summary and Notification
-  ################################################################################
-  summary:
-    name: Execution Summary
-    runs-on: ubuntu-latest
-    needs: [validate, prepare, deploy]
-    if: always()
-    
-    steps:
-      - name: Generate Execution Summary
-        run: |
-          echo "# ECS Task Definition Management - Execution Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📋 Workflow Details" >> $GITHUB_STEP_SUMMARY
-          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Action** | \`${{ inputs.action }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Task Family** | \`${{ inputs.task_family }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Stack Name** | \`${{ env.STACK_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **AWS Region** | \`${{ env.AWS_REGION }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Dry Run** | \`${{ inputs.dry_run }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Triggered By** | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Run ID** | \`${{ github.run_id }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          TASKDEF_FAMILY=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK" \
+            --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionFamily`].OutputValue' \
+            --output text)
           
-          echo "## 📊 Job Status" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Validate | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Prepare | ${{ needs.prepare.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Deploy | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          TASKDEF_REVISION=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK" \
+            --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionRevision`].OutputValue' \
+            --output text)
           
-          # Overall status
-          if [ "${{ needs.deploy.result }}" == "success" ]; then
-            echo "## ✅ Operation Completed Successfully" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The ${{ inputs.action }} operation completed successfully for stack \`${{ env.STACK_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ inputs.dry_run }}" == "true" ]; then
-            echo "## ℹ️ Dry Run Completed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Validation completed successfully. No changes were deployed." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.deploy.result }}" == "failure" ]; then
-            echo "## ❌ Operation Failed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The ${{ inputs.action }} operation failed. Please check the logs for details." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.deploy.result }}" == "skipped" ]; then
-            echo "## ⏭️ Deploy Skipped" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Deploy job was skipped due to validation failure or dry-run mode." >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "### 🎉 Task Definition Created/Updated" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **ARN**: \`$TASKDEF_ARN\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Family**: \`$TASKDEF_FAMILY\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Revision**: \`$TASKDEF_REVISION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🔗 Useful Links" >> $GITHUB_STEP_SUMMARY
-          echo "- [CloudFormation Console](https://console.aws.amazon.com/cloudformation/home?region=${{ env.AWS_REGION }}#/stacks)" >> $GITHUB_STEP_SUMMARY
-          echo "- [ECS Console](https://console.aws.amazon.com/ecs/home?region=${{ env.AWS_REGION }}#/taskDefinitions)" >> $GITHUB_STEP_SUMMARY
-          echo "- [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-      
-      - name: Post Summary Comment
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const summary = `
-            ### ECS Task Definition Management Result
-            
-            - **Action**: \`${{ inputs.action }}\`
-            - **Environment**: \`${{ inputs.environment }}\`
-            - **Task Family**: \`${{ inputs.task_family }}\`
-            - **Status**: ${{ needs.deploy.result }}
-            - **Stack**: \`${{ env.STACK_NAME }}\`
-            
-            [View Full Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            `;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: summary
-            });
+          # Get task definition details
+          echo "### Task Definition Details" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          aws ecs describe-task-definition \
+            --task-definition "$TASKDEF_ARN" \
+            --query 'taskDefinition.[family,revision,status,cpu,memory,requiresCompatibilities[0],networkMode]' \
+            --output table >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ✅ Ready to Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Use this task definition in your ECS Service:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **TaskDefinitionFamily**: \`$TASKDEF_FAMILY\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **TaskDefinitionRevision**: \`$TASKDEF_REVISION\` or \`latest\`" >> "$GITHUB_STEP_SUMMARY"
