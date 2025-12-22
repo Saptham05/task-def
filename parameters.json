@@ -1,107 +1,37 @@
 [
-  {
-    "ParameterKey": "TaskCpu",
-    "ParameterValue": "512"
-  },
-  {
-    "ParameterKey": "TaskMemory",
-    "ParameterValue": "1024"
-  },
-  {
-    "ParameterKey": "RequiresCompatibilities",
-    "ParameterValue": "FARGATE"
-  },
-  {
-    "ParameterKey": "NetworkMode",
-    "ParameterValue": "awsvpc"
-  },
-  {
-    "ParameterKey": "ContainerName",
-    "ParameterValue": "app"
-  },
-  {
-    "ParameterKey": "ContainerImage",
-    "ParameterValue": "nginx:latest"
-  },
-  {
-    "ParameterKey": "ContainerMemory",
-    "ParameterValue": "1024"
-  },
-  {
-    "ParameterKey": "ContainerPort",
-    "ParameterValue": "80"
-  },
-  {
-    "ParameterKey": "HostPort",
-    "ParameterValue": "80"
-  },
-  {
-    "ParameterKey": "Protocol",
-    "ParameterValue": "tcp"
-  },
-  {
-    "ParameterKey": "Essential",
-    "ParameterValue": "true"
-  },
-  {
-    "ParameterKey": "LogDriver",
-    "ParameterValue": "awslogs"
-  },
-  {
-    "ParameterKey": "LogStreamPrefix",
-    "ParameterValue": "ecs"
-  },
-  {
-    "ParameterKey": "ExecutionRoleArn",
-    "ParameterValue": "arn:aws:iam::789406175361:role/ecsTaskExecutionRole"
-  },
-  {
-    "ParameterKey": "TaskRoleArn",
-    "ParameterValue": ""
-  },
+  { "ParameterKey": "TaskCpu", "ParameterValue": "512" },
+  { "ParameterKey": "TaskMemory", "ParameterValue": "1024" },
+  { "ParameterKey": "RequiresCompatibilities", "ParameterValue": "FARGATE" },
+  { "ParameterKey": "NetworkMode", "ParameterValue": "awsvpc" },
+
+  { "ParameterKey": "ContainerName", "ParameterValue": "app" },
+  { "ParameterKey": "ContainerImage", "ParameterValue": "nginx:latest" },
+  { "ParameterKey": "ContainerMemory", "ParameterValue": "1024" },
+  { "ParameterKey": "ContainerPort", "ParameterValue": "80" },
+  { "ParameterKey": "HostPort", "ParameterValue": "80" },
+  { "ParameterKey": "Protocol", "ParameterValue": "tcp" },
+  { "ParameterKey": "Essential", "ParameterValue": "true" },
+
   {
     "ParameterKey": "EnvironmentVariables",
     "ParameterValue": "[{\"name\":\"ENVIRONMENT\",\"value\":\"dev\"},{\"name\":\"APP_NAME\",\"value\":\"my-application\"},{\"name\":\"LOG_LEVEL\",\"value\":\"debug\"},{\"name\":\"PORT\",\"value\":\"80\"}]"
   },
-  
+
   {
     "ParameterKey": "HealthCheckCommand",
-    "ParameterValue": "[\"CMD-SHELL\", \"curl -f http://localhost/ || exit 1\"]"
+    "ParameterValue": "CMD-SHELL,curl -f http://localhost/ || exit 1"
   },
+  { "ParameterKey": "HealthCheckInterval", "ParameterValue": "30" },
+  { "ParameterKey": "HealthCheckTimeout", "ParameterValue": "5" },
+  { "ParameterKey": "HealthCheckRetries", "ParameterValue": "3" },
+  { "ParameterKey": "HealthCheckStartPeriod", "ParameterValue": "60" },
+
   {
-    "ParameterKey": "HealthCheckInterval",
-    "ParameterValue": "30"
+    "ParameterKey": "ExecutionRoleArn",
+    "ParameterValue": "arn:aws:iam::789406175361:role/ecsTaskExecutionRole"
   },
-  {
-    "ParameterKey": "HealthCheckTimeout",
-    "ParameterValue": "5"
-  },
-  {
-    "ParameterKey": "HealthCheckRetries",
-    "ParameterValue": "3"
-  },
-  {
-    "ParameterKey": "HealthCheckStartPeriod",
-    "ParameterValue": "60"
-  },
-  {
-    "ParameterKey": "RuntimePlatformCpuArchitecture",
-    "ParameterValue": "X86_64"
-  },
-  {
-    "ParameterKey": "RuntimePlatformOperatingSystemFamily",
-    "ParameterValue": "LINUX"
-  },
-  {
-    "ParameterKey": "EphemeralStorageSize",
-    "ParameterValue": "30"
-  },
-  {
-    "ParameterKey": "ProjectTag",
-    "ParameterValue": "MyProject"
-  },
-  {
-    "ParameterKey": "CostCenterTag",
-    "ParameterValue": "Engineering"
-  }
+
+  { "ParameterKey": "EphemeralStorageSize", "ParameterValue": "30" },
+  { "ParameterKey": "ProjectTag", "ParameterValue": "MyProject" },
+  { "ParameterKey": "CostCenterTag", "ParameterValue": "Engineering" }
 ]
