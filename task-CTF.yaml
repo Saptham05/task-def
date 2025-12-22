@@ -1,103 +1,66 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECS Task Definition managed via GitHub Actions and CloudFormation
+Description: ECS Task Definition (Type-safe, ECS compliant)
 
-################################################################################
-# PARAMETERS
-################################################################################
 Parameters:
   Family:
     Type: String
-    Description: Task definition family name
-
   Environment:
     Type: String
-    Description: Environment name (dev, qa, prod)
 
   TaskCpu:
     Type: Number
-    Default: 256
-
   TaskMemory:
     Type: Number
-    Default: 512
 
   RequiresCompatibilities:
     Type: String
     Default: FARGATE
-
   NetworkMode:
     Type: String
     Default: awsvpc
 
-  TaskRoleArn:
-    Type: String
-    Default: ''
-
   ExecutionRoleArn:
     Type: String
-    Default: ''
 
   ContainerName:
     Type: String
-    Default: app
-
   ContainerImage:
     Type: String
-
   ContainerCpu:
     Type: Number
     Default: 0
-
   ContainerMemory:
     Type: Number
-    Default: 512
 
   ContainerPort:
     Type: Number
-    Default: 80
-
   HostPort:
     Type: Number
-    Default: 80
-
   Protocol:
     Type: String
     Default: tcp
 
   Essential:
     Type: String
+    AllowedValues: ['true','false']
     Default: 'true'
-    AllowedValues: ['true', 'false']
 
   EnvironmentVariables:
     Type: String
     Default: '[]'
-    Description: JSON array of environment variables
 
   HealthCheckCommand:
     Type: CommaDelimitedList
     Default: ''
-    Description: CMD-SHELL,curl -f http://localhost/ || exit 1
 
   HealthCheckInterval:
     Type: Number
-    Default: 30
-
   HealthCheckTimeout:
     Type: Number
-    Default: 5
-
   HealthCheckRetries:
     Type: Number
-    Default: 3
-
   HealthCheckStartPeriod:
     Type: Number
-    Default: 0
-
-  LogDriver:
-    Type: String
-    Default: awslogs
 
   LogStreamPrefix:
     Type: String
@@ -107,28 +70,12 @@ Parameters:
     Type: Number
     Default: 20
 
-  ProjectTag:
-    Type: String
-    Default: ''
-
-  CostCenterTag:
-    Type: String
-    Default: ''
-
-################################################################################
-# CONDITIONS
-################################################################################
 Conditions:
-  HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
   HasHealthCheck: !Not [!Equals [!Join ['', !Ref HealthCheckCommand], '']]
   HasEnvVars: !Not [!Equals [!Ref EnvironmentVariables, '[]']]
   HasCustomEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 20]]
-  HasProjectTag: !Not [!Equals [!Ref ProjectTag, '']]
-  HasCostCenterTag: !Not [!Equals [!Ref CostCenterTag, '']]
+  IsEssential: !Equals [!Ref Essential, 'true']
 
-################################################################################
-# RESOURCES
-################################################################################
 Resources:
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -138,8 +85,6 @@ Resources:
       Memory: !Ref TaskMemory
       NetworkMode: !Ref NetworkMode
       RequiresCompatibilities: !Split [',', !Ref RequiresCompatibilities]
-
-      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref AWS::NoValue]
       ExecutionRoleArn: !Ref ExecutionRoleArn
 
       EphemeralStorage: !If
@@ -152,7 +97,7 @@ Resources:
           Image: !Ref ContainerImage
           Cpu: !Ref ContainerCpu
           Memory: !Ref ContainerMemory
-          Essential: !Ref Essential
+          Essential: !If [IsEssential, true, false]
 
           PortMappings:
             - ContainerPort: !Ref ContainerPort
@@ -165,7 +110,7 @@ Resources:
             - !Ref AWS::NoValue
 
           LogConfiguration:
-            LogDriver: !Ref LogDriver
+            LogDriver: awslogs
             Options:
               awslogs-group: !Sub '/ecs/${Family}-${Environment}'
               awslogs-region: !Ref AWS::Region
@@ -182,32 +127,6 @@ Resources:
               }
             - !Ref AWS::NoValue
 
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: ManagedBy
-          Value: CloudFormation
-        - !If
-            - HasProjectTag
-            - { Key: Project, Value: !Ref ProjectTag }
-            - !Ref AWS::NoValue
-        - !If
-            - HasCostCenterTag
-            - { Key: CostCenter, Value: !Ref CostCenterTag }
-            - !Ref AWS::NoValue
-
-################################################################################
-# OUTPUTS
-################################################################################
 Outputs:
   TaskDefinitionArn:
-    Description: ARN of the ECS Task Definition
     Value: !Ref ECSTaskDefinition
-
-  TaskDefinitionFamily:
-    Description: Task Definition Family
-    Value: !Sub '${Family}-${Environment}'
-
-  TaskDefinitionRevision:
-    Description: Task Definition Revision
-    Value: !Select [6, !Split [':', !Ref ECSTaskDefinition]]
