@@ -68,19 +68,19 @@ Parameters:
     MinLength: 1
   
   ContainerCpu:
-    Type: Number
+    Type: String
     Description: 'Container-level CPU units (optional - for resource allocation)'
-    Default: 0
+    Default: '0'
   
   ContainerMemory:
-    Type: Number
+    Type: String
     Description: 'Hard memory limit in MB for container'
-    Default: 512
+    Default: '512'
   
   ContainerMemoryReservation:
-    Type: Number
+    Type: String
     Description: 'Soft memory limit in MB (optional)'
-    Default: 0
+    Default: '0'
   
   Essential:
     Type: String
@@ -92,18 +92,14 @@ Parameters:
   
   # Port Mappings
   ContainerPort:
-    Type: Number
+    Type: String
     Description: 'Container port to expose'
-    Default: 80
-    MinValue: 1
-    MaxValue: 65535
+    Default: '80'
   
   HostPort:
-    Type: Number
+    Type: String
     Description: 'Host port (0 for dynamic, same as container for awsvpc)'
-    Default: 80
-    MinValue: 0
-    MaxValue: 65535
+    Default: '80'
   
   Protocol:
     Type: String
@@ -163,32 +159,24 @@ Parameters:
     Default: ''
   
   HealthCheckInterval:
-    Type: Number
+    Type: String
     Description: 'Seconds between health checks'
-    Default: 30
-    MinValue: 5
-    MaxValue: 300
+    Default: '30'
   
   HealthCheckTimeout:
-    Type: Number
+    Type: String
     Description: 'Seconds to wait for health check'
-    Default: 5
-    MinValue: 2
-    MaxValue: 60
+    Default: '5'
   
   HealthCheckRetries:
-    Type: Number
+    Type: String
     Description: 'Number of retries before unhealthy'
-    Default: 3
-    MinValue: 1
-    MaxValue: 10
+    Default: '3'
   
   HealthCheckStartPeriod:
-    Type: Number
+    Type: String
     Description: 'Grace period before health checks start (seconds)'
-    Default: 0
-    MinValue: 0
-    MaxValue: 300
+    Default: '0'
   
   # Working Directory and User
   WorkingDirectory:
@@ -253,32 +241,30 @@ Parameters:
     Default: ''
   
   UlimitSoftLimit:
-    Type: Number
+    Type: String
     Description: 'Soft ulimit'
-    Default: 0
+    Default: '0'
   
   UlimitHardLimit:
-    Type: Number
+    Type: String
     Description: 'Hard ulimit'
-    Default: 0
+    Default: '0'
   
   # Linux Parameters
   LinuxSharedMemorySize:
-    Type: Number
+    Type: String
     Description: 'Shared memory size in MB'
-    Default: 0
+    Default: '0'
   
   LinuxMaxSwap:
-    Type: Number
+    Type: String
     Description: 'Max swap in MB'
-    Default: 0
+    Default: '0'
   
   LinuxSwappiness:
-    Type: Number
+    Type: String
     Description: 'Swappiness value (0-100)'
-    Default: 0
-    MinValue: 0
-    MaxValue: 100
+    Default: '0'
   
   # Additional Container Properties
   Privileged:
@@ -367,11 +353,9 @@ Parameters:
   
   # Ephemeral Storage (Fargate only)
   EphemeralStorageSize:
-    Type: Number
+    Type: String
     Description: 'Ephemeral storage in GB (20-200 for Fargate)'
-    Default: 20
-    MinValue: 20
-    MaxValue: 200
+    Default: '20'
   
   # Tags
   ProjectTag:
@@ -641,3 +625,5 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-StackName'
 
+
+hey just print this
