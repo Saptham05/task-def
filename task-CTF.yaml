@@ -1,284 +1,185 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'ECS Task Definition - Simple CloudFormation template (no Lambda)'
+Description: ECS Task Definition (GitHub Actions compatible)
 
-################################################################################
-# Parameters - All as String, passed via --parameter-overrides
-################################################################################
 Parameters:
   Family:
     Type: String
-    Description: 'Task Definition family name'
-  
+
   Environment:
     Type: String
-    Description: 'Environment (dev, qa, staging, prod)'
-  
-  # Task Level
+
   TaskCpu:
-    Type: String
-    Default: '256'
-  
+    Type: Number
+    Default: 256
+
   TaskMemory:
-    Type: String
-    Default: '512'
-  
+    Type: Number
+    Default: 512
+
   RequiresCompatibilities:
     Type: String
-    Default: 'FARGATE'
-  
+    Default: FARGATE
+
   NetworkMode:
     Type: String
-    Default: 'awsvpc'
-  
-  # Container
-  ContainerName:
-    Type: String
-    Default: 'app'
-  
-  ContainerImage:
-    Type: String
-  
-  ContainerMemory:
-    Type: String
-    Default: '512'
-  
-  ContainerCpu:
-    Type: String
-    Default: '0'
-  
-  ContainerPort:
-    Type: String
-    Default: '80'
-  
-  HostPort:
-    Type: String
-    Default: '80'
-  
-  Protocol:
-    Type: String
-    Default: 'tcp'
-  
-  Essential:
-    Type: String
-    Default: 'true'
-  
-  # Logging
-  LogDriver:
-    Type: String
-    Default: 'awslogs'
-  
-  LogGroupName:
-    Type: String
-    Default: ''
-  
-  LogStreamPrefix:
-    Type: String
-    Default: 'ecs'
-  
-  LogRegion:
-    Type: String
-    Default: ''
-  
-  # IAM
-  ExecutionRoleArn:
-    Type: String
-    Default: ''
-  
+    Default: awsvpc
+
   TaskRoleArn:
     Type: String
     Default: ''
-  
-  # Advanced
+
+  ExecutionRoleArn:
+    Type: String
+    Default: ''
+
+  ContainerName:
+    Type: String
+    Default: app
+
+  ContainerImage:
+    Type: String
+
+  ContainerCpu:
+    Type: Number
+    Default: 0
+
+  ContainerMemory:
+    Type: Number
+    Default: 512
+
+  Essential:
+    Type: Boolean
+    Default: true
+
+  ContainerPort:
+    Type: Number
+    Default: 80
+
+  HostPort:
+    Type: Number
+    Default: 80
+
+  Protocol:
+    Type: String
+    Default: tcp
+
   EnvironmentVariables:
     Type: String
-    Default: ''
-    Description: 'KEY1=VALUE1,KEY2=VALUE2'
-  
+    Default: '[]'
+
   HealthCheckCommand:
-    Type: String
+    Type: CommaDelimitedList
     Default: ''
-  
+
   HealthCheckInterval:
-    Type: String
-    Default: '30'
-  
+    Type: Number
+    Default: 30
+
   HealthCheckTimeout:
-    Type: String
-    Default: '5'
-  
+    Type: Number
+    Default: 5
+
   HealthCheckRetries:
-    Type: String
-    Default: '3'
-  
+    Type: Number
+    Default: 3
+
   HealthCheckStartPeriod:
+    Type: Number
+    Default: 0
+
+  LogDriver:
     Type: String
-    Default: '60'
-  
-  RuntimePlatformCpuArchitecture:
+    Default: awslogs
+
+  LogStreamPrefix:
     Type: String
-    Default: 'X86_64'
-  
-  RuntimePlatformOperatingSystemFamily:
-    Type: String
-    Default: 'LINUX'
-  
+    Default: ecs
+
   EphemeralStorageSize:
-    Type: String
-    Default: '20'
-  
-  # Tags
-  Team:
-    Type: String
-    Default: 'DevOps'
-  
-  CostCenter:
-    Type: String
-    Default: ''
-  
-  Project:
+    Type: Number
+    Default: 20
+
+  ProjectTag:
     Type: String
     Default: ''
 
-################################################################################
-# Conditions
-################################################################################
+  CostCenterTag:
+    Type: String
+    Default: ''
+
 Conditions:
-  HasExecutionRole: !Not [!Equals [!Ref ExecutionRoleArn, '']]
   HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
-  HasLogGroupName: !Not [!Equals [!Ref LogGroupName, '']]
-  HasLogRegion: !Not [!Equals [!Ref LogRegion, '']]
-  HasHealthCheck: !Not [!Equals [!Ref HealthCheckCommand, '']]
-  HasContainerCpu: !Not [!Equals [!Ref ContainerCpu, '0']]
-  HasEnvironmentVariables: !Not [!Equals [!Ref EnvironmentVariables, '']]
-  HasCustomEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, '20']]
-  HasCostCenter: !Not [!Equals [!Ref CostCenter, '']]
-  HasProject: !Not [!Equals [!Ref Project, '']]
-  IsEssential: !Equals [!Ref Essential, 'true']
+  HasHealthCheck: !Not [!Equals [!Join ['', !Ref HealthCheckCommand], '']]
+  HasEnvVars: !Not [!Equals [!Ref EnvironmentVariables, '[]']]
+  HasCustomEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 20]]
 
-################################################################################
-# Resources
-################################################################################
 Resources:
-  # ECS Task Definition - Using direct YAML structure
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub '${Family}-${Environment}'
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
-      RequiresCompatibilities:
-        - !Ref RequiresCompatibilities
+      RequiresCompatibilities: !Split [',', !Ref RequiresCompatibilities]
       NetworkMode: !Ref NetworkMode
-      
-      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref 'AWS::NoValue']
-      ExecutionRoleArn: !If [HasExecutionRole, !Ref ExecutionRoleArn, !Ref 'AWS::NoValue']
-      
-      RuntimePlatform:
-        CpuArchitecture: !Ref RuntimePlatformCpuArchitecture
-        OperatingSystemFamily: !Ref RuntimePlatformOperatingSystemFamily
-      
+
+      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref AWS::NoValue]
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+
       EphemeralStorage: !If
         - HasCustomEphemeralStorage
-        - SizeInGiB: !Ref EphemeralStorageSize
-        - !Ref 'AWS::NoValue'
-      
+        - { SizeInGiB: !Ref EphemeralStorageSize }
+        - !Ref AWS::NoValue
+
       ContainerDefinitions:
         - Name: !Ref ContainerName
           Image: !Ref ContainerImage
-          Cpu: !If [HasContainerCpu, !Ref ContainerCpu, !Ref 'AWS::NoValue']
+          Cpu: !Ref ContainerCpu
           Memory: !Ref ContainerMemory
-          Essential: !If [IsEssential, true, false]
-          
+          Essential: !Ref Essential
+
           PortMappings:
             - ContainerPort: !Ref ContainerPort
               HostPort: !Ref HostPort
               Protocol: !Ref Protocol
-          
+
           Environment: !If
-            - HasEnvironmentVariables
-            - !Split
-              - '||'
-              - !Sub
-                - |
-                  ${EnvVarsList}
-                - EnvVarsList: !Join
-                    - '||'
-                    - !Split
-                      - ','
-                      - !Ref EnvironmentVariables
-            - !Ref 'AWS::NoValue'
-          
+            - HasEnvVars
+            - !Ref EnvironmentVariables
+            - !Ref AWS::NoValue
+
           LogConfiguration:
             LogDriver: !Ref LogDriver
             Options:
-              awslogs-group: !If
-                - HasLogGroupName
-                - !Ref LogGroupName
-                - !Sub '/ecs/${Family}-${Environment}'
-              awslogs-region: !If
-                - HasLogRegion
-                - !Ref LogRegion
-                - !Ref 'AWS::Region'
+              awslogs-group: !Sub '/ecs/${Family}-${Environment}'
+              awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: !Ref LogStreamPrefix
-          
+
           HealthCheck: !If
             - HasHealthCheck
-            - Command: !Split [',', !Ref HealthCheckCommand]
-              Interval: !Ref HealthCheckInterval
-              Timeout: !Ref HealthCheckTimeout
-              Retries: !Ref HealthCheckRetries
-              StartPeriod: !Ref HealthCheckStartPeriod
-            - !Ref 'AWS::NoValue'
-      
+            - {
+                Command: !Ref HealthCheckCommand,
+                Interval: !Ref HealthCheckInterval,
+                Timeout: !Ref HealthCheckTimeout,
+                Retries: !Ref HealthCheckRetries,
+                StartPeriod: !Ref HealthCheckStartPeriod
+              }
+            - !Ref AWS::NoValue
+
       Tags:
-        - Key: Name
-          Value: !Sub '${Family}-${Environment}'
         - Key: Environment
           Value: !Ref Environment
         - Key: ManagedBy
           Value: CloudFormation
-        - Key: Team
-          Value: !Ref Team
         - !If
-          - HasCostCenter
-          - Key: CostCenter
-            Value: !Ref CostCenter
-          - !Ref 'AWS::NoValue'
+            - ProjectTag
+            - { Key: Project, Value: !Ref ProjectTag }
+            - !Ref AWS::NoValue
         - !If
-          - HasProject
-          - Key: Project
-            Value: !Ref Project
-          - !Ref 'AWS::NoValue'
+            - CostCenterTag
+            - { Key: CostCenter, Value: !Ref CostCenterTag }
+            - !Ref AWS::NoValue
 
-################################################################################
-# Outputs
-################################################################################
 Outputs:
   TaskDefinitionArn:
-    Description: 'ARN of the ECS Task Definition'
     Value: !Ref ECSTaskDefinition
-    Export:
-      Name: !Sub '${AWS::StackName}-TaskDefinition'
-  
-  TaskDefinitionFamily:
-    Description: 'Family name of the Task Definition'
-    Value: !Sub '${Family}-${Environment}'
-    Export:
-      Name: !Sub '${AWS::StackName}-Family'
-  
-  TaskDefinitionRevision:
-    Description: 'Revision number of the Task Definition'
-    Value: !Select [6, !Split [':', !Ref ECSTaskDefinition]]
-    Export:
-      Name: !Sub '${AWS::StackName}-Revision'
-  
-  TaskDefinitionFullName:
-    Description: 'Full Task Definition name with revision'
-    Value: !Sub
-      - '${Family}:${Revision}'
-      - Family: !Sub '${Family}-${Environment}'
-        Revision: !Select [6, !Split [':', !Ref ECSTaskDefinition]]
-    Export:
-      Name: !Sub '${AWS::StackName}-FullName'
-
-
