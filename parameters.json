@@ -31,7 +31,5 @@
     "ParameterValue": "arn:aws:iam::789406175361:role/ecsTaskExecutionRole"
   },
 
-  { "ParameterKey": "EphemeralStorageSize", "ParameterValue": "30" },
-  { "ParameterKey": "ProjectTag", "ParameterValue": "MyProject" },
-  { "ParameterKey": "CostCenterTag", "ParameterValue": "Engineering" }
+  { "ParameterKey": "EphemeralStorageSize", "ParameterValue": "30" }
 ]
