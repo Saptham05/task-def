@@ -282,4 +282,3 @@ Outputs:
       Name: !Sub '${AWS::StackName}-FullName'
 
 
-print this
