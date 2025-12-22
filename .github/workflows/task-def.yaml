@@ -292,53 +292,17 @@ jobs:
         run: |
           echo "::group::Creating Stack: ${{ env.STACK_NAME }}"
           
-          # Read parameter file (CloudFormation format with all string values)
+          # Read parameter file (CloudFormation format)
           PARAM_FILE="${{ env.PARAMETER_FILE }}"
           TEMP_FILE=$(mktemp)
           
-          # List of parameters that need to be numbers (not strings)
-          NUMBER_PARAMS="TaskCpu TaskMemory ContainerMemory ContainerCpu ContainerMemoryReservation ContainerPort HostPort HealthCheckInterval HealthCheckTimeout HealthCheckRetries HealthCheckStartPeriod EphemeralStorageSize LinuxSharedMemorySize UlimitSoftLimit UlimitHardLimit"
-          
-          # List of parameters that are boolean strings (ensure lowercase)
-          BOOLEAN_PARAMS="Essential Privileged ReadonlyRootFilesystem Interactive PseudoTerminal"
-          
-          # Process parameters with jq
+          # Simply add Family and Environment - keep all values as strings
           jq --arg family "${{ inputs.task_family }}" \
-             --arg env "${{ inputs.environment }}" \
-             --arg number_params "$NUMBER_PARAMS" \
-             --arg boolean_params "$BOOLEAN_PARAMS" '
-          # Start with Family and Environment
+             --arg env "${{ inputs.environment }}" '
           [
             {"ParameterKey": "Family", "ParameterValue": $family},
             {"ParameterKey": "Environment", "ParameterValue": $env}
-          ] +
-          # Process each parameter
-          (. | map(
-            .ParameterKey as $key |
-            .ParameterValue as $val |
-            
-            # Check if value is empty
-            if ($val == "" or $val == null) then
-              .
-            # Check if this is a number parameter
-            elif ($number_params | split(" ") | index($key)) then
-              # Convert string to number (remove quotes)
-              {
-                "ParameterKey": $key,
-                "ParameterValue": ($val | tonumber)
-              }
-            # Check if this is a boolean parameter
-            elif ($boolean_params | split(" ") | index($key)) then
-              # Ensure lowercase
-              {
-                "ParameterKey": $key,
-                "ParameterValue": ($val | ascii_downcase)
-              }
-            # All other parameters stay as-is
-            else
-              .
-            end
-          ))
+          ] + .
           ' "$PARAM_FILE" > "$TEMP_FILE"
           
           # Display parameters for debugging
@@ -424,53 +388,17 @@ jobs:
         run: |
           echo "::group::Updating Stack: ${{ env.STACK_NAME }}"
           
-          # Read parameter file (CloudFormation format with all string values)
+          # Read parameter file (CloudFormation format)
           PARAM_FILE="${{ env.PARAMETER_FILE }}"
           TEMP_FILE=$(mktemp)
           
-          # List of parameters that need to be numbers (not strings)
-          NUMBER_PARAMS="TaskCpu TaskMemory ContainerMemory ContainerCpu ContainerMemoryReservation ContainerPort HostPort HealthCheckInterval HealthCheckTimeout HealthCheckRetries HealthCheckStartPeriod EphemeralStorageSize LinuxSharedMemorySize UlimitSoftLimit UlimitHardLimit"
-          
-          # List of parameters that are boolean strings (ensure lowercase)
-          BOOLEAN_PARAMS="Essential Privileged ReadonlyRootFilesystem Interactive PseudoTerminal"
-          
-          # Process parameters with jq
+          # Simply add Family and Environment - keep all values as strings
           jq --arg family "${{ inputs.task_family }}" \
-             --arg env "${{ inputs.environment }}" \
-             --arg number_params "$NUMBER_PARAMS" \
-             --arg boolean_params "$BOOLEAN_PARAMS" '
-          # Start with Family and Environment
+             --arg env "${{ inputs.environment }}" '
           [
             {"ParameterKey": "Family", "ParameterValue": $family},
             {"ParameterKey": "Environment", "ParameterValue": $env}
-          ] +
-          # Process each parameter
-          (. | map(
-            .ParameterKey as $key |
-            .ParameterValue as $val |
-            
-            # Check if value is empty
-            if ($val == "" or $val == null) then
-              .
-            # Check if this is a number parameter
-            elif ($number_params | split(" ") | index($key)) then
-              # Convert string to number (remove quotes)
-              {
-                "ParameterKey": $key,
-                "ParameterValue": ($val | tonumber)
-              }
-            # Check if this is a boolean parameter
-            elif ($boolean_params | split(" ") | index($key)) then
-              # Ensure lowercase
-              {
-                "ParameterKey": $key,
-                "ParameterValue": ($val | ascii_downcase)
-              }
-            # All other parameters stay as-is
-            else
-              .
-            end
-          ))
+          ] + .
           ' "$PARAM_FILE" > "$TEMP_FILE"
           
           # Display parameters for debugging
@@ -692,5 +620,3 @@ jobs:
               repo: context.repo.repo,
               body: summary
             });
-
-
