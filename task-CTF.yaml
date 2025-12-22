@@ -1,37 +1,59 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECS Task Definition (JSON-safe, pipeline-friendly)
+Description: ECS Fargate Task Definition (Pipeline-safe, Typed, Validated)
 
+###############################################################################
+# Parameters
+###############################################################################
 Parameters:
   Family:
     Type: String
+
   Environment:
     Type: String
 
   TaskCpu:
     Type: Number
+
   TaskMemory:
     Type: Number
+
+  RequiresCompatibilities:
+    Type: String
+    Default: FARGATE
+
+  NetworkMode:
+    Type: String
+    Default: awsvpc
 
   ExecutionRoleArn:
     Type: String
 
+  TaskRoleArn:
+    Type: String
+    Default: ''
+
   ContainerName:
     Type: String
+
   ContainerImage:
     Type: String
+
   ContainerCpu:
     Type: Number
+    Default: 0
+
   ContainerMemory:
     Type: Number
 
   ContainerPort:
     Type: Number
+
   HostPort:
     Type: Number
 
   Essential:
     Type: String
-    AllowedValues: ['true','false']
+    AllowedValues: ['true', 'false']
     Default: 'true'
 
   EnvironmentVariables:
@@ -45,12 +67,15 @@ Parameters:
   HealthCheckInterval:
     Type: Number
     Default: 30
+
   HealthCheckTimeout:
     Type: Number
     Default: 5
+
   HealthCheckRetries:
     Type: Number
     Default: 3
+
   HealthCheckStartPeriod:
     Type: Number
     Default: 0
@@ -59,11 +84,17 @@ Parameters:
     Type: Number
     Default: 20
 
+###############################################################################
+# Conditions
+###############################################################################
 Conditions:
+  HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
   HasHealthCheck: !Not [!Equals [!Ref HealthCheckCommand, '']]
-  HasEnvVars: !Not [!Equals [!Ref EnvironmentVariables, '[]']]
   HasCustomEphemeralStorage: !Not [!Equals [!Ref EphemeralStorageSize, 20]]
 
+###############################################################################
+# Resources
+###############################################################################
 Resources:
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -71,9 +102,12 @@ Resources:
       Family: !Sub '${Family}-${Environment}'
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
-      NetworkMode: awsvpc
-      RequiresCompatibilities: [FARGATE]
+      NetworkMode: !Ref NetworkMode
+      RequiresCompatibilities:
+        - !Ref RequiresCompatibilities
+
       ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref AWS::NoValue]
 
       EphemeralStorage: !If
         - HasCustomEphemeralStorage
@@ -81,41 +115,69 @@ Resources:
         - !Ref AWS::NoValue
 
       ContainerDefinitions:
-        - !Sub |
-            {
-              "name": "${ContainerName}",
-              "image": "${ContainerImage}",
-              "cpu": ${ContainerCpu},
-              "memory": ${ContainerMemory},
-              "essential": ${Essential},
-              "portMappings": [
+        !If
+          - HasHealthCheck
+          - 
+            - !Sub |
                 {
-                  "containerPort": ${ContainerPort},
-                  "hostPort": ${HostPort},
-                  "protocol": "tcp"
+                  "name": "${ContainerName}",
+                  "image": "${ContainerImage}",
+                  "cpu": ${ContainerCpu},
+                  "memory": ${ContainerMemory},
+                  "essential": ${Essential},
+                  "portMappings": [
+                    {
+                      "containerPort": ${ContainerPort},
+                      "hostPort": ${HostPort},
+                      "protocol": "tcp"
+                    }
+                  ],
+                  "environment": ${EnvironmentVariables},
+                  "healthCheck": {
+                    "command": ${HealthCheckCommand},
+                    "interval": ${HealthCheckInterval},
+                    "timeout": ${HealthCheckTimeout},
+                    "retries": ${HealthCheckRetries},
+                    "startPeriod": ${HealthCheckStartPeriod}
+                  },
+                  "logConfiguration": {
+                    "logDriver": "awslogs",
+                    "options": {
+                      "awslogs-group": "/ecs/${Family}-${Environment}",
+                      "awslogs-region": "${AWS::Region}",
+                      "awslogs-stream-prefix": "ecs"
+                    }
+                  }
                 }
-              ],
-              "environment": ${EnvironmentVariables},
-              "logConfiguration": {
-                "logDriver": "awslogs",
-                "options": {
-                  "awslogs-group": "/ecs/${Family}-${Environment}",
-                  "awslogs-region": "${AWS::Region}",
-                  "awslogs-stream-prefix": "ecs"
+          - 
+            - !Sub |
+                {
+                  "name": "${ContainerName}",
+                  "image": "${ContainerImage}",
+                  "cpu": ${ContainerCpu},
+                  "memory": ${ContainerMemory},
+                  "essential": ${Essential},
+                  "portMappings": [
+                    {
+                      "containerPort": ${ContainerPort},
+                      "hostPort": ${HostPort},
+                      "protocol": "tcp"
+                    }
+                  ],
+                  "environment": ${EnvironmentVariables},
+                  "logConfiguration": {
+                    "logDriver": "awslogs",
+                    "options": {
+                      "awslogs-group": "/ecs/${Family}-${Environment}",
+                      "awslogs-region": "${AWS::Region}",
+                      "awslogs-stream-prefix": "ecs"
+                    }
+                  }
                 }
-              }
-              ${HasHealthCheck,
-                ",\"healthCheck\": {
-                  \"command\": ${HealthCheckCommand},
-                  \"interval\": ${HealthCheckInterval},
-                  \"timeout\": ${HealthCheckTimeout},
-                  \"retries\": ${HealthCheckRetries},
-                  \"startPeriod\": ${HealthCheckStartPeriod}
-                }",
-                ""
-              }
-            }
 
+###############################################################################
+# Outputs
+###############################################################################
 Outputs:
   TaskDefinitionArn:
-    Value: !Ref ECSTaskDefinition
+    Description: ECS Task Definit
