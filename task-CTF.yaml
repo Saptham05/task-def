@@ -624,6 +624,3 @@ Outputs:
     Value: !Ref 'AWS::StackName'
     Export:
       Name: !Sub '${AWS::StackName}-StackName'
-
-
-hey just print this
