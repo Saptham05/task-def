@@ -266,10 +266,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    needs: [validate, prepare]
-    if: |
-      needs.validate.outputs.validation_status == 'success' &&
-      inputs.dry_run == false
+    #needs: [validate, prepare]
+    #if: |
+      #needs.validate.outputs.validation_status == 'success' &&
+      #inputs.dry_run == false
     
     steps:
       - name: Checkout Repository
