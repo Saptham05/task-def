@@ -249,18 +249,18 @@ jobs:
           echo "::endgroup::"
       
       #- name: Validate CloudFormation Template
-       # run: |
-        #  echo "::group::Template Validation"
-         # aws cloudformation validate-template \
-          #  --template-body file://${{ inputs.cloudformation_template_path }} \
-           # --region "${{ env.AWS_REGION }}" || exit 1
+        #run: |
+          #echo "::group::Template Validation"
+          #aws cloudformation validate-template \
+            #--template-body file://${{ inputs.cloudformation_template_path }} \
+            #--region "${{ env.AWS_REGION }}" || exit 1
           #echo "✅ Template validation successful"
           #echo "::endgroup::"
 
   ################################################################################
   # Job 3: Execute CloudFormation Operation
   ################################################################################
-  deploy
+  deploy:
     name: Execute ${{ inputs.action }} Operation
     runs-on: ubuntu-latest
     permissions:
